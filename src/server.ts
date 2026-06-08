@@ -15,15 +15,22 @@ import { runIntrospection, introspectTransientSchema } from "./introspection";
 import { getPgPool, getMongoClient } from "./pool-manager";
 import { swaggerDocument } from "./swagger-spec";
 
+import cookieParser from "cookie-parser";
+import authRouter from "./routes/auth";
+
 const app = express();
 const PORT = process.env.BACKEND_PORT || 3002;
 const BACKEND_SECRET = process.env.BACKEND_SECRET || "bi-lite-backend-secret-key-super-secure-87654321";
 
-app.use(cors({ origin: "*" }));
+app.use(cors({ origin: process.env.FRONTEND_URL || "http://localhost:3000", credentials: true }));
 app.use(express.json());
+app.use(cookieParser());
 
 // Serve Swagger UI API documentation
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument));
+
+// Mount auth routes
+app.use("/api/auth", authRouter);
 
 // ---------------------------------------------------------------------------
 // Authentication Middleware
