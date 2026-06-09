@@ -17,6 +17,8 @@ import { swaggerDocument } from "./swagger-spec";
 
 import cookieParser from "cookie-parser";
 import authRouter from "./routes/auth";
+import chatRouter from "./routes/chat";
+import connectionsRouter from "./routes/connections";
 
 const app = express();
 const PORT = process.env.BACKEND_PORT || 3002;
@@ -26,7 +28,6 @@ app.use(cors({ origin: process.env.FRONTEND_URL || "http://localhost:3000", cred
 app.use(express.json());
 app.use(cookieParser());
 
-// Serve Swagger UI API documentation
 // Serve Swagger UI API documentation
 app.get("/api-docs/json", (req, res) => {
   res.json(swaggerDocument);
@@ -81,9 +82,6 @@ app.get("/api-docs", (req, res) => {
 </html>`);
 });
 
-// Mount auth routes
-app.use("/api/auth", authRouter);
-
 // ---------------------------------------------------------------------------
 // Authentication Middleware
 // ---------------------------------------------------------------------------
@@ -104,6 +102,11 @@ const authMiddleware = (req: any, res: any, next: any) => {
     return res.status(403).json({ error: "Invalid or expired authorization token." });
   }
 };
+
+// Mount routes
+app.use("/api/auth", authRouter);
+app.use("/api/chat", authMiddleware, chatRouter);
+app.use("/api/connections", authMiddleware, connectionsRouter);
 
 // ---------------------------------------------------------------------------
 // Routes
@@ -206,15 +209,27 @@ app.post("/api/introspection/run", authMiddleware, async (req, res) => {
  * Trigger an asynchronous query execution job
  */
 app.post("/api/query/execute", authMiddleware, async (req, res) => {
-  const { connectionId, engine, query } = req.body;
+  const { connectionId, query } = req.body;
   const organizationId = (req as any).user.organizationId;
 
-  if (!connectionId || !engine || !query) {
+  if (!connectionId || !query) {
     return res.status(400).json({ success: false, error: "Missing required parameters." });
   }
 
   try {
     const controlDb = await getControlDb();
+    const connColl = controlDb.collection("database_connections");
+
+    // Verify database connection belongs to the organization
+    const conn = await connColl.findOne({
+      _id: new ObjectId(connectionId),
+      organization_id: new ObjectId(organizationId),
+    });
+
+    if (!conn) {
+      return res.status(404).json({ success: false, error: "Database connection not found or unauthorized." });
+    }
+
     const jobsColl = controlDb.collection("query_jobs");
 
     const job = await jobsColl.insertOne({
@@ -231,7 +246,7 @@ app.post("/api/query/execute", authMiddleware, async (req, res) => {
     // Start background worker, do not await it
     startQueryJob(jobId, {
       connectionId,
-      engine,
+      engine: conn.engine,
       query,
       organizationId,
     }).catch((err) => {

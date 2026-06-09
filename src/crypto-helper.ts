@@ -13,6 +13,21 @@ function getEncryptionKey(): Buffer {
   return Buffer.from(keyHex, "hex");
 }
 
+export function encryptPassword(plaintext: string): string {
+  const key = getEncryptionKey();
+  const iv = crypto.randomBytes(12); // 96-bit IV for GCM
+  const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
+
+  const encrypted = Buffer.concat([
+    cipher.update(plaintext, "utf8"),
+    cipher.final(),
+  ]);
+  const authTag = cipher.getAuthTag();
+
+  // Format: iv(hex).authTag(hex).ciphertext(hex)
+  return `${iv.toString("hex")}.${authTag.toString("hex")}.${encrypted.toString("hex")}`;
+}
+
 export function decryptPassword(encoded: string): string {
   const key = getEncryptionKey();
   const parts = encoded.split(".");
