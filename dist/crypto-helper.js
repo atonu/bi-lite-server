@@ -3,6 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.encryptPassword = encryptPassword;
 exports.decryptPassword = decryptPassword;
 const crypto_1 = __importDefault(require("crypto"));
 const ALGORITHM = "aes-256-gcm";
@@ -13,6 +14,18 @@ function getEncryptionKey() {
         throw new Error("DATABASE_ENCRYPTION_KEY must be a 64-character hex string (32 bytes).");
     }
     return Buffer.from(keyHex, "hex");
+}
+function encryptPassword(plaintext) {
+    const key = getEncryptionKey();
+    const iv = crypto_1.default.randomBytes(12); // 96-bit IV for GCM
+    const cipher = crypto_1.default.createCipheriv(ALGORITHM, key, iv);
+    const encrypted = Buffer.concat([
+        cipher.update(plaintext, "utf8"),
+        cipher.final(),
+    ]);
+    const authTag = cipher.getAuthTag();
+    // Format: iv(hex).authTag(hex).ciphertext(hex)
+    return `${iv.toString("hex")}.${authTag.toString("hex")}.${encrypted.toString("hex")}`;
 }
 function decryptPassword(encoded) {
     const key = getEncryptionKey();

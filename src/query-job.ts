@@ -1,6 +1,8 @@
 import { MongoClient, ObjectId } from "mongodb";
 import { getPgPool, getMongoClient as getTargetMongoClient } from "./pool-manager";
 import { decryptPassword } from "./crypto-helper";
+import { Parser } from "node-sql-parser";
+import { STATEMENT_TIMEOUT } from "./constants";
 
 // Define the maximum rows we store for a single query job to prevent infinite scans
 const MAX_JOB_ROWS_LIMIT = 50_000;
@@ -76,8 +78,55 @@ export async function startQueryJob(jobId: string, data: JobData): Promise<void>
 
       const pgClient = await pool.connect();
       try {
+        // --- 4. AST Parsing Middleware ---
+        try {
+          const parser = new Parser();
+          const ast = parser.astify(data.query, { database: "PostgresQL" });
+          const statements = Array.isArray(ast) ? ast : [ast];
+
+          for (const stmt of statements) {
+            if (!stmt) continue;
+            const type = (stmt.type || "").toLowerCase();
+            if (["insert", "update", "delete", "drop", "alter", "truncate", "create", "grant", "revoke"].includes(type)) {
+              throw new Error(`Execution blocked: Query contains destructive operation (${type.toUpperCase()}). Only SELECT queries are permitted.`);
+            }
+          }
+        } catch (astErr: any) {
+          // If our AST parser explicitly blocked it, rethrow
+          if (astErr.message && astErr.message.includes("Execution blocked:")) {
+            throw astErr;
+          }
+          // Otherwise, it might be a complex valid SELECT syntax node-sql-parser doesn't understand,
+          // so we fallback to read-only transaction protection.
+        }
+
+        // --- 5. Hard statement_timeout ---
+        await pgClient.query(`SET statement_timeout = '${STATEMENT_TIMEOUT}'`);
+
         // Enforce read-only transaction
         await pgClient.query("BEGIN READ ONLY");
+
+        // --- 6. Pre-flight EXPLAIN checks ---
+        const explainResult = await pgClient.query(`EXPLAIN (FORMAT JSON) ${data.query}`);
+        const planObj = explainResult.rows[0] && (explainResult.rows[0]["QUERY PLAN"] || explainResult.rows[0]["query plan"]);
+        const rootPlan = planObj && planObj[0] && planObj[0].Plan;
+
+        function hasMassiveSeqScan(node: any): boolean {
+          if (!node) return false;
+          if (node["Node Type"] === "Seq Scan" && node["Plan Rows"] > 100000) {
+            return true;
+          }
+          if (node.Plans && Array.isArray(node.Plans)) {
+            for (const child of node.Plans) {
+              if (hasMassiveSeqScan(child)) return true;
+            }
+          }
+          return false;
+        }
+
+        if (hasMassiveSeqScan(rootPlan)) {
+          throw new Error("Execution blocked: Pre-flight check detected a full table scan on a massive dataset. Please refine your question to be more specific.");
+        }
 
         // Execute query
         const result = await pgClient.query(data.query);

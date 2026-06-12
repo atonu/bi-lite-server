@@ -138,10 +138,14 @@ router.post("/", async (req: any, res: Response) => {
     let encryptedUri: string | null = null;
 
     if (creds.engine === "MONGODB") {
-      if (!creds.connectionUri) {
+      let uriToEncrypt = creds.connectionUri;
+      if (uriToEncrypt === "mongodb+srv://********************************************************") {
+        uriToEncrypt = process.env.SAMPLE_DATASET_URI || "";
+      }
+      if (!uriToEncrypt) {
         return res.status(400).json({ success: false, error: "MongoDB connection URI is required." });
       }
-      encryptedUri = encryptPassword(creds.connectionUri);
+      encryptedUri = encryptPassword(uriToEncrypt);
     } else {
       if (!creds.password) {
         return res.status(400).json({ success: false, error: "Password is required." });

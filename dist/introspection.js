@@ -64,18 +64,37 @@ async function runIntrospection(connectionId, organizationId) {
             WHERE table_schema = $1 AND table_name = $2
             ORDER BY ordinal_position
           `, [tbl.table_schema, tbl.table_name]);
-                    const docs = colsResult.rows.map((row) => ({
-                        connection_id: new mongodb_1.ObjectId(connectionId),
-                        table_schema: tbl.table_schema,
-                        table_name: tbl.table_name,
-                        column_name: row.column_name,
-                        data_type: row.data_type,
-                        is_nullable: row.is_nullable === "YES",
-                        is_primary_key: pkSet.has(`${tbl.table_schema}.${tbl.table_name}.${row.column_name}`),
-                        column_default: row.column_default,
-                        ordinal_position: row.ordinal_position,
-                        introspected_at: new Date(),
-                    }));
+                    const docs = [];
+                    for (const row of colsResult.rows) {
+                        let sample_values = null;
+                        if (["character varying", "varchar", "text", "character", "char", "enum"].includes(row.data_type.toLowerCase())) {
+                            try {
+                                const distResult = await client.query(`
+                  SELECT DISTINCT "${row.column_name}"
+                  FROM "${tbl.table_schema}"."${tbl.table_name}"
+                  WHERE "${row.column_name}" IS NOT NULL
+                  LIMIT 10
+                `);
+                                sample_values = distResult.rows.map((r) => r[row.column_name]);
+                            }
+                            catch (e) {
+                                // ignore errors for distinct
+                            }
+                        }
+                        docs.push({
+                            connection_id: new mongodb_1.ObjectId(connectionId),
+                            table_schema: tbl.table_schema,
+                            table_name: tbl.table_name,
+                            column_name: row.column_name,
+                            data_type: row.data_type,
+                            is_nullable: row.is_nullable === "YES",
+                            is_primary_key: pkSet.has(`${tbl.table_schema}.${tbl.table_name}.${row.column_name}`),
+                            column_default: row.column_default,
+                            ordinal_position: row.ordinal_position,
+                            sample_values,
+                            introspected_at: new Date(),
+                        });
+                    }
                     if (docs.length > 0) {
                         await metaColl.insertMany(docs);
                     }
@@ -113,11 +132,21 @@ async function runIntrospection(connectionId, organizationId) {
                 const coll = mdb.collection(collName);
                 const samples = await coll.find({}).limit(100).toArray();
                 const fieldMap = new Map();
+                const distinctValues = new Map();
                 for (const doc of samples) {
                     const fields = collectFields(doc);
                     for (const f of fields) {
                         if (!fieldMap.has(f.path) || fieldMap.get(f.path) === "null") {
                             fieldMap.set(f.path, f.bsonType);
+                        }
+                        if (f.bsonType === "string" && f.value !== undefined && f.value !== null) {
+                            let valSet = distinctValues.get(f.path);
+                            if (!valSet) {
+                                valSet = new Set();
+                                distinctValues.set(f.path, valSet);
+                            }
+                            if (valSet.size < 10)
+                                valSet.add(f.value);
                         }
                     }
                 }
@@ -134,6 +163,7 @@ async function runIntrospection(connectionId, organizationId) {
                         is_primary_key: path === "_id",
                         column_default: null,
                         ordinal_position: ordinal++,
+                        sample_values: distinctValues.has(path) ? Array.from(distinctValues.get(path)) : null,
                         introspected_at: new Date(),
                     });
                 }
@@ -255,11 +285,21 @@ async function introspectTransientSchema(creds) {
                 const coll = mdb.collection(collName);
                 const samples = await coll.find({}).limit(100).toArray();
                 const fieldMap = new Map();
+                const distinctValues = new Map();
                 for (const doc of samples) {
                     const fields = collectFields(doc);
                     for (const f of fields) {
                         if (!fieldMap.has(f.path) || fieldMap.get(f.path) === "null") {
                             fieldMap.set(f.path, f.bsonType);
+                        }
+                        if (f.bsonType === "string" && f.value !== undefined && f.value !== null) {
+                            let valSet = distinctValues.get(f.path);
+                            if (!valSet) {
+                                valSet = new Set();
+                                distinctValues.set(f.path, valSet);
+                            }
+                            if (valSet.size < 10)
+                                valSet.add(f.value);
                         }
                     }
                 }
@@ -274,6 +314,7 @@ async function introspectTransientSchema(creds) {
                         isPrimaryKey: path === "_id",
                         columnDefault: null,
                         ordinalPosition: ordinal++,
+                        sampleValues: distinctValues.has(path) ? Array.from(distinctValues.get(path)) : null,
                     });
                 }
             }
@@ -323,7 +364,7 @@ function collectFields(obj, prefix = "") {
                                 : typeof value === "boolean"
                                     ? "bool"
                                     : "string";
-            fields.push({ path: fullPath, bsonType });
+            fields.push({ path: fullPath, bsonType, value });
         }
     }
     return fields;
