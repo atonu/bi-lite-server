@@ -1,0 +1,322 @@
+[
+  {
+    "session_id": "0f4bef32-6241-4aea-a8d1-ebb3126a1a57",
+    "role": "USER",
+    "content": "Compare monthly sales vs expenses over time",
+    "chart_result": null,
+    "created_at": "2026-06-22T09:30:54.799Z",
+    "id": "b61fcdc2-76f3-4dda-b35a-ce283c548b1b"
+  },
+  {
+    "session_id": "0f4bef32-6241-4aea-a8d1-ebb3126a1a57",
+    "role": "ERROR",
+    "content": "Backend connection error: fetch failed",
+    "chart_result": null,
+    "created_at": "2026-06-22T09:30:54.799Z",
+    "id": "9986863f-5d18-4aa9-a84b-40cb6a686dfb"
+  },
+  {
+    "session_id": "0f4bef32-6241-4aea-a8d1-ebb3126a1a57",
+    "role": "USER",
+    "content": "Show me a comparison between sales made in January to May in the year 2026",
+    "chart_result": null,
+    "created_at": "2026-06-22T09:30:54.799Z",
+    "id": "fbfdc747-1cac-4be2-9774-a39b0e4b501b"
+  },
+  {
+    "session_id": "eda782fd-a0b9-4d22-8cb0-8b353cc79a16",
+    "role": "USER",
+    "content": "Show me a comparison between sales made in January to May in the year 2026",
+    "chart_result": null,
+    "created_at": "2026-06-22T15:56:52.369Z",
+    "id": "6b574f3a-03d1-4ca4-b353-b70d6e1c411c"
+  },
+  {
+    "session_id": "eda782fd-a0b9-4d22-8cb0-8b353cc79a16",
+    "role": "ERROR",
+    "content": "Backend connection error: fetch failed",
+    "chart_result": null,
+    "created_at": "2026-06-22T15:56:52.369Z",
+    "id": "ef92f8ef-e2c0-4537-a391-a6bad4b7cbfb"
+  },
+  {
+    "session_id": "eda782fd-a0b9-4d22-8cb0-8b353cc79a16",
+    "role": "USER",
+    "content": "list me 5 emplpoyee names",
+    "chart_result": null,
+    "created_at": "2026-06-22T15:56:52.369Z",
+    "id": "f8df3b8a-7836-40e3-932b-0936ab56b1e7"
+  },
+  {
+    "session_id": "eda782fd-a0b9-4d22-8cb0-8b353cc79a16",
+    "role": "ERROR",
+    "content": "Backend connection error: fetch failed",
+    "chart_result": null,
+    "created_at": "2026-06-22T15:56:52.369Z",
+    "id": "f65f2a0e-f91c-462e-b3c8-f1d6f8f60db5"
+  },
+  {
+    "session_id": "eda782fd-a0b9-4d22-8cb0-8b353cc79a16",
+    "role": "USER",
+    "content": "Show me a comparison between sales made in January to May in the year 2026",
+    "chart_result": null,
+    "created_at": "2026-06-22T15:56:52.369Z",
+    "id": "7972dc2d-c2a7-4fd2-8528-b62659facbcb"
+  },
+  {
+    "session_id": "eda782fd-a0b9-4d22-8cb0-8b353cc79a16",
+    "role": "ERROR",
+    "content": "Backend connection error: fetch failed",
+    "chart_result": null,
+    "created_at": "2026-06-22T15:56:52.369Z",
+    "id": "0edf5b84-5df3-4c11-b0a4-1c6e5f4da4df"
+  },
+  {
+    "session_id": "eda782fd-a0b9-4d22-8cb0-8b353cc79a16",
+    "role": "USER",
+    "content": "Show me a comparison between sales made in January to May in the year 2026",
+    "chart_result": null,
+    "created_at": "2026-06-22T15:56:52.369Z",
+    "id": "c23de967-cb19-4877-8a08-0a647a3c51f8"
+  },
+  {
+    "session_id": "eda782fd-a0b9-4d22-8cb0-8b353cc79a16",
+    "role": "ERROR",
+    "content": "Failed to process successful response",
+    "chart_result": null,
+    "created_at": "2026-06-22T15:56:52.369Z",
+    "id": "a94f6ff0-bc49-471c-9952-91f2e2a78cb5"
+  },
+  {
+    "session_id": "83fbd835-08c7-42aa-995a-650efd0a490e",
+    "role": "USER",
+    "content": "list me 5 employee names",
+    "chart_result": null,
+    "created_at": "2026-06-22T16:22:16.104Z",
+    "id": "d10565ba-52fa-47c9-8b36-5ae57b821fc9"
+  },
+  {
+    "session_id": "b6fc4428-cbb1-4134-be5f-0e8efcf95240",
+    "role": "USER",
+    "content": "list me 5 employee names",
+    "chart_result": null,
+    "created_at": "2026-06-22T20:33:58.563Z",
+    "id": "15aeb506-7341-41db-9c56-8c5451211157"
+  },
+  {
+    "session_id": "b6fc4428-cbb1-4134-be5f-0e8efcf95240",
+    "role": "ASSISTANT",
+    "content": "Listing 5 employee names as requested.",
+    "chart_result": {
+      "rows": [
+        {
+          "_id": "6a246425487a694fa6fe3fa3",
+          "id": 5,
+          "name": "Ryan Wallace",
+          "email": "ryan.wallace@dundermifflin.com",
+          "department": "HR",
+          "role": "Associate",
+          "salary": 119000,
+          "bonus_amount": 7140,
+          "sale": 8,
+          "revenue_generated": 8184,
+          "projects_completed": 15,
+          "attendance": 17,
+          "leave": 5,
+          "overtime_hours": 19,
+          "training_hours": 1,
+          "performance_score": 3,
+          "satisfaction_score": 96,
+          "customer_rating": 3.3,
+          "tenure_months": 94,
+          "expenses_claimed": 833,
+          "created_at": "2026-01-04 05:02:12.875134+00"
+        },
+        {
+          "_id": "6a246425487a694fa6fe3fa5",
+          "id": 7,
+          "name": "Pam Flenderson",
+          "email": "pam.flenderson@dundermifflin.com",
+          "department": "Management",
+          "role": "Manager",
+          "salary": 107000,
+          "bonus_amount": 10486,
+          "sale": 17,
+          "revenue_generated": 15130,
+          "projects_completed": 14,
+          "attendance": 18,
+          "leave": 4,
+          "overtime_hours": 18,
+          "training_hours": 36,
+          "performance_score": 4.9,
+          "satisfaction_score": 98,
+          "customer_rating": 4.3,
+          "tenure_months": 40,
+          "expenses_claimed": 2227,
+          "created_at": "2026-02-07 22:02:12.875134+00"
+        },
+        {
+          "_id": "6a246425487a694fa6fe3fab",
+          "id": 13,
+          "name": "Kevin Howard",
+          "email": "kevin.howard@dundermifflin.com",
+          "department": "HR",
+          "role": "Manager",
+          "salary": 105000,
+          "bonus_amount": 6720,
+          "sale": 12,
+          "revenue_generated": 15900,
+          "projects_completed": 8,
+          "attendance": 18,
+          "leave": 4,
+          "overtime_hours": 50,
+          "training_hours": 20,
+          "performance_score": 3.2,
+          "satisfaction_score": 88,
+          "customer_rating": 4.4,
+          "tenure_months": 62,
+          "expenses_claimed": 2689,
+          "created_at": "2026-03-17 03:02:12.875134+00"
+        },
+        {
+          "_id": "6a246425487a694fa6fe3fac",
+          "id": 14,
+          "name": "Michael Scott",
+          "email": "michael.scott@dundermifflin.com",
+          "department": "Accounting",
+          "role": "Senior Associate",
+          "salary": 119000,
+          "bonus_amount": 9044,
+          "sale": 12,
+          "revenue_generated": 21912,
+          "projects_completed": 9,
+          "attendance": 22,
+          "leave": 0,
+          "overtime_hours": 1,
+          "training_hours": 11,
+          "performance_score": 3.8,
+          "satisfaction_score": 96,
+          "customer_rating": 4,
+          "tenure_months": 76,
+          "expenses_claimed": 4973,
+          "created_at": "2026-01-18 10:02:12.875134+00"
+        },
+        {
+          "_id": "6a246425487a694fa6fe3fb2",
+          "id": 20,
+          "name": "Angela Bernard",
+          "email": "angela.bernard@dundermifflin.com",
+          "department": "HR",
+          "role": "Director",
+          "salary": 85000,
+          "bonus_amount": 6800,
+          "sale": 13,
+          "revenue_generated": 22360,
+          "projects_completed": 11,
+          "attendance": 20,
+          "leave": 2,
+          "overtime_hours": 30,
+          "training_hours": 37,
+          "performance_score": 4,
+          "satisfaction_score": 70,
+          "customer_rating": 3.9,
+          "tenure_months": 17,
+          "expenses_claimed": 2863,
+          "created_at": "2025-06-21 06:02:12.875134+00"
+        }
+      ],
+      "columns": [
+        "_id",
+        "id",
+        "name",
+        "email",
+        "department",
+        "role",
+        "salary",
+        "bonus_amount",
+        "sale",
+        "revenue_generated",
+        "projects_completed",
+        "attendance",
+        "leave",
+        "overtime_hours",
+        "training_hours",
+        "performance_score",
+        "satisfaction_score",
+        "customer_rating",
+        "tenure_months",
+        "expenses_claimed",
+        "created_at"
+      ],
+      "rowCount": 5,
+      "executionMs": 1267,
+      "aiResponse": {
+        "sql": "{\"collection\":\"employees\",\"pipeline\":[{\"$limit\":5}]}",
+        "chartType": "TABLE",
+        "chartTitle": "Employee Names",
+        "xAxisKey": "name",
+        "yAxisKey": "name",
+        "yAxisKeys": [],
+        "reasoning": "Listing 5 employee names as requested."
+      },
+      "jobId": "b8bca732-ae4c-4a34-b3e3-ff1f24655735"
+    },
+    "created_at": "2026-06-22T20:33:58.563Z",
+    "id": "6eb89005-a3b2-45c8-b7c1-3f8169d58ace"
+  },
+  {
+    "session_id": "b6fc4428-cbb1-4134-be5f-0e8efcf95240",
+    "role": "USER",
+    "content": "Show me a comparison between sales made in January to May in the year 2026",
+    "chart_result": null,
+    "created_at": "2026-06-22T20:33:58.563Z",
+    "id": "4cfaf9c1-189b-447b-baeb-0b9eaf803d7e"
+  },
+  {
+    "session_id": "b6fc4428-cbb1-4134-be5f-0e8efcf95240",
+    "role": "ASSISTANT",
+    "content": "Comparing monthly sales totals using a bar chart for clear categorical comparison.",
+    "chart_result": {
+      "rows": [
+        {
+          "_id": "2026-01",
+          "totalSales": 40500
+        },
+        {
+          "_id": "2026-02",
+          "totalSales": 23500
+        },
+        {
+          "_id": "2026-03",
+          "totalSales": 60700
+        },
+        {
+          "_id": "2026-04",
+          "totalSales": 42000
+        },
+        {
+          "_id": "2026-05",
+          "totalSales": 73500
+        }
+      ],
+      "columns": [
+        "_id",
+        "totalSales"
+      ],
+      "rowCount": 5,
+      "executionMs": 1392,
+      "aiResponse": {
+        "sql": "{\"collection\":\"sales\",\"pipeline\":[{\"$match\":{\"date\":{\"$gte\":\"2026-01-01\",\"$lte\":\"2026-05-31\"}}},{\"$group\":{\"_id\":{\"$substr\":[\"$date\",0,7]},\"totalSales\":{\"$sum\":\"$amount\"}}},{\"$sort\":{\"_id\":1}},{\"$limit\":500}]}",
+        "chartType": "BAR",
+        "chartTitle": "Monthly Sales Jan-May 2026",
+        "xAxisKey": "_id",
+        "yAxisKey": "totalSales",
+        "yAxisKeys": [],
+        "reasoning": "Comparing monthly sales totals using a bar chart for clear categorical comparison."
+      },
+      "jobId": "8099d287-a99a-428d-bd27-94d6dd5407fa"
+    },
+    "created_at": "2026-06-22T20:33:58.563Z",
+    "id": "784a7c19-0c63-4c1f-b594-baa75687437e"
+  }
+]

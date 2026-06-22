@@ -1,6 +1,8 @@
 import { getPgPool, getMongoClient as getTargetMongoClient } from "./pool-manager";
 import { decryptPassword } from "./crypto-helper";
 import { getControlDb, newId } from "./json-db";
+import { STATEMENT_TIMEOUT } from "./constants";
+import { Parser as SqlParser } from "node-sql-parser";
 
 // Define the maximum rows we store for a single query job to prevent infinite scans
 const MAX_JOB_ROWS_LIMIT = 50_000;
@@ -70,7 +72,7 @@ export async function startQueryJob(jobId: string, data: JobData): Promise<void>
       try {
         // --- 4. AST Parsing Middleware ---
         try {
-          const parser = new Parser();
+          const parser = new SqlParser();
           const ast = parser.astify(data.query, { database: "PostgresQL" });
           const statements = Array.isArray(ast) ? ast : [ast];
 

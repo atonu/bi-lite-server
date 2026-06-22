@@ -1,9 +1,8 @@
 import { Router, Response } from "express";
-import { generateObject, generateText } from "ai";
+import { generateText } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import * as z from "zod";
 import { getControlDb, newId } from "../json-db";
-
 const router = Router();
 
 // ---------------------------------------------------------------------------
@@ -11,6 +10,10 @@ const router = Router();
 // ---------------------------------------------------------------------------
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || "";
+
+if (!OPENROUTER_API_KEY) {
+  console.warn("[CHAT] WARNING: OPENROUTER_API_KEY is not set. AI features will fail.");
+}
 
 const openrouter = createOpenAI({
   baseURL: "https://openrouter.ai/api/v1",
@@ -22,6 +25,47 @@ const openrouter = createOpenAI({
 });
 
 const DEFAULT_MODEL = "deepseek/deepseek-chat-v3-0324";
+
+// ---------------------------------------------------------------------------
+// Error extraction helper — digs through nested cause chains
+// ---------------------------------------------------------------------------
+
+function extractErrorMessage(err: any): string {
+  // AI SDK errors often wrap the real error in a cause chain
+  let message = err?.message || String(err);
+  let cause = err?.cause;
+  const messages: string[] = [message];
+
+  // Walk the cause chain up to 5 levels deep
+  let depth = 0;
+  while (cause && depth < 5) {
+    const causeMsg = cause?.message || String(cause);
+    if (causeMsg && !messages.includes(causeMsg)) {
+      messages.push(causeMsg);
+    }
+    cause = cause?.cause;
+    depth++;
+  }
+
+  // Check for response body in AI SDK errors
+  if (err?.responseBody) {
+    try {
+      const body = typeof err.responseBody === 'string' ? JSON.parse(err.responseBody) : err.responseBody;
+      if (body?.error?.message) {
+        messages.push(body.error.message);
+      }
+    } catch {}
+  }
+
+  // Check for data property (some AI SDK errors have this)
+  if (err?.data?.error) {
+    const dataErr = typeof err.data.error === 'string' ? err.data.error : err.data.error?.message;
+    if (dataErr) messages.push(dataErr);
+  }
+
+  // Return the most informative message
+  return messages.filter(Boolean).join(' | ');
+}
 
 // ---------------------------------------------------------------------------
 // AI Response Schemas & Types
@@ -580,12 +624,25 @@ router.post("/ask", async (req: any, res: Response) => {
 
     if (conn.engine === "MONGODB") {
       const systemPrompt = buildMongoSystemPrompt(formatMongoSchemaForPrompt(rows));
-      const result = await generateText({
-        model: openrouter(model),
-        system: systemPrompt,
-        prompt: question,
-        temperature: 0.1,
-      });
+      console.log(`[CHAT /ask] MongoDB mode, model=${model}, question="${question.slice(0, 80)}..."`);
+
+      let result;
+      try {
+        result = await generateText({
+          model: openrouter(model),
+          system: systemPrompt,
+          prompt: question,
+          temperature: 0.1,
+        });
+      } catch (aiErr: any) {
+        const errMsg = extractErrorMessage(aiErr);
+        console.error(`[CHAT /ask] OpenRouter generateText (MongoDB) failed:`, errMsg);
+        console.error(`[CHAT /ask] Full error:`, aiErr);
+        return res.status(502).json({
+          success: false,
+          error: `AI service error: ${errMsg}`,
+        });
+      }
 
       const rawText = result.text.trim();
       let jsonStr = rawText;
@@ -598,6 +655,7 @@ router.post("/ask", async (req: any, res: Response) => {
       try {
         parsed = JSON.parse(jsonStr);
       } catch (e) {
+        console.error(`[CHAT /ask] AI returned invalid MongoDB JSON. Raw (first 500 chars):`, jsonStr.slice(0, 500));
         return res.status(400).json({
           success: false,
           error: `AI returned invalid MongoDB JSON: ${String(e)}. Raw: ${jsonStr.slice(0, 200)}`,
@@ -612,6 +670,7 @@ router.post("/ask", async (req: any, res: Response) => {
       }
 
       if (!parsed.collection || !Array.isArray(parsed.pipeline)) {
+        console.error(`[CHAT /ask] AI response missing collection or pipeline:`, JSON.stringify(parsed).slice(0, 500));
         return res.status(400).json({
           success: false,
           error: `AI response missing collection or pipeline.`,
@@ -626,6 +685,7 @@ router.post("/ask", async (req: any, res: Response) => {
       const VALID_CHART_TYPES = ["LINE", "BAR", "DONUT", "TABLE", "AREA", "SCATTER", "ERROR"] as const;
       const chartType = VALID_CHART_TYPES.includes(parsed.chartType) ? parsed.chartType : "TABLE";
 
+      console.log(`[CHAT /ask] MongoDB success: chartType=${chartType}, collection=${parsed.collection}`);
       return res.json({
         success: true,
         response: {
@@ -641,30 +701,81 @@ router.post("/ask", async (req: any, res: Response) => {
       });
     }
 
-    // SQL path
-    const systemPrompt = buildSqlSystemPrompt(formatSqlSchemaForPrompt(rows));
-    const { object } = await generateObject({
-      model: openrouter(model),
-      schema: SqlAiResponseSchema,
-      system: systemPrompt,
-      prompt: question,
-      temperature: 0.1,
-    });
+    // SQL path — use generateText + JSON parsing for broad OpenRouter model compatibility
+    const sqlSystemPrompt = buildSqlSystemPrompt(formatSqlSchemaForPrompt(rows))
+      + `\n\nYou MUST respond with ONLY a single valid JSON object — no markdown, no explanation, no extra text. The JSON must have exactly these keys:\n{\n  "sql": "<SELECT statement with no trailing semicolon>",\n  "chartType": "LINE" | "BAR" | "DONUT" | "TABLE" | "AREA" | "SCATTER" | "ERROR",\n  "chartTitle": "<concise title, max 60 chars>",\n  "xAxisKey": "<field name for X axis>",\n  "yAxisKey": "<primary field name for Y axis>",\n  "yAxisKeys": ["<optional additional Y axis field names>"],\n  "reasoning": "<1-2 sentence explanation>"\n}`;
 
-    if (object.chartType === "ERROR") {
-      return res.status(400).json({
+    console.log(`[CHAT /ask] SQL mode, model=${model}, question="${question.slice(0, 80)}..."`);
+
+    let sqlResult;
+    try {
+      sqlResult = await generateText({
+        model: openrouter(model),
+        system: sqlSystemPrompt,
+        prompt: question,
+        temperature: 0.1,
+      });
+    } catch (aiErr: any) {
+      const errMsg = extractErrorMessage(aiErr);
+      console.error(`[CHAT /ask] OpenRouter generateText (SQL) failed:`, errMsg);
+      console.error(`[CHAT /ask] Full error:`, aiErr);
+      return res.status(502).json({
         success: false,
-        error: object.reasoning || "Execution blocked: Destructive operation requested.",
+        error: `AI service error: ${errMsg}`,
       });
     }
 
+    const sqlRawText = sqlResult.text.trim();
+    let sqlJsonStr = sqlRawText;
+    const sqlFenceMatch = sqlRawText.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (sqlFenceMatch) {
+      sqlJsonStr = sqlFenceMatch[1].trim();
+    }
+
+    let object: any;
+    try {
+      object = JSON.parse(sqlJsonStr);
+    } catch (e) {
+      console.error(`[CHAT /ask] AI returned invalid SQL JSON. Raw (first 500 chars):`, sqlJsonStr.slice(0, 500));
+      return res.status(400).json({
+        success: false,
+        error: `AI returned invalid JSON: ${String(e)}. Raw: ${sqlJsonStr.slice(0, 200)}`,
+      });
+    }
+
+    // Handle error/blocked response from AI
+    if (object.error || object.chartType === "ERROR") {
+      return res.status(400).json({
+        success: false,
+        error: object.error || object.reasoning || "Execution blocked: Destructive operation requested.",
+      });
+    }
+
+    // Validate required fields
+    const VALID_CHART_TYPES_SQL = ["LINE", "BAR", "DONUT", "TABLE", "AREA", "SCATTER", "ERROR"] as const;
+    const sqlChartType = VALID_CHART_TYPES_SQL.includes(object.chartType) ? object.chartType : "TABLE";
+
+    const response = {
+      sql: object.sql || "",
+      chartType: sqlChartType,
+      chartTitle: object.chartTitle || "Query Result",
+      xAxisKey: object.xAxisKey || "",
+      yAxisKey: object.yAxisKey || "",
+      yAxisKeys: Array.isArray(object.yAxisKeys) ? object.yAxisKeys : undefined,
+      reasoning: object.reasoning || "",
+    };
+
+    console.log(`[CHAT /ask] SQL success: chartType=${response.chartType}, sql="${response.sql.slice(0, 100)}..."`);
     return res.json({
       success: true,
-      response: object,
+      response,
       connectionId,
     });
   } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message || String(err) });
+    const errMsg = extractErrorMessage(err);
+    console.error(`[CHAT /ask] Unhandled error:`, errMsg);
+    console.error(`[CHAT /ask] Stack:`, err.stack || err);
+    return res.status(500).json({ success: false, error: errMsg });
   }
 });
 
@@ -691,11 +802,13 @@ router.post("/generate-title", async (req: any, res: Response) => {
       });
       const title = result.text.trim().replace(/^["']|["']$/g, "").slice(0, 60);
       return res.json({ title: title || fallback });
-    } catch {
+    } catch (titleErr: any) {
+      console.error(`[CHAT /generate-title] AI call failed, using fallback:`, extractErrorMessage(titleErr));
       return res.json({ title: fallback });
     }
   } catch (err: any) {
-    return res.status(500).json({ error: err.message || String(err) });
+    console.error(`[CHAT /generate-title] Unhandled error:`, extractErrorMessage(err));
+    return res.status(500).json({ error: extractErrorMessage(err) });
   }
 });
 
@@ -711,6 +824,8 @@ router.post("/ask-upload", async (req: any, res: Response) => {
     if (!question || !columns || !sampleRows) {
       return res.status(400).json({ success: false, error: "Missing required parameters." });
     }
+
+    console.log(`[CHAT /ask-upload] model=${model}, question="${question.slice(0, 80)}...", columns=${columns.length}`);
 
     const dataSchema = `UPLOADED DATA COLUMNS:\n${columns.join(", ")}\n\nSAMPLE ROWS (first 5):\n${JSON.stringify(sampleRows.slice(0, 5), null, 2)}`;
 
@@ -735,12 +850,23 @@ RULES:
 - filteredRows must be a valid JSON array of objects
 - Respond with ONLY the JSON, no extra text`;
 
-    const result = await generateText({
-      model: openrouter(model),
-      system: systemPrompt,
-      prompt: question,
-      temperature: 0.1,
-    });
+    let result;
+    try {
+      result = await generateText({
+        model: openrouter(model),
+        system: systemPrompt,
+        prompt: question,
+        temperature: 0.1,
+      });
+    } catch (aiErr: any) {
+      const errMsg = extractErrorMessage(aiErr);
+      console.error(`[CHAT /ask-upload] OpenRouter generateText failed:`, errMsg);
+      console.error(`[CHAT /ask-upload] Full error:`, aiErr);
+      return res.status(502).json({
+        success: false,
+        error: `AI service error: ${errMsg}`,
+      });
+    }
 
     const rawText = result.text.trim();
     let jsonStr = rawText;
@@ -751,6 +877,7 @@ RULES:
     try {
       parsed = JSON.parse(jsonStr);
     } catch (e) {
+      console.error(`[CHAT /ask-upload] AI returned invalid JSON. Raw (first 500 chars):`, jsonStr.slice(0, 500));
       return res.status(400).json({
         success: false,
         error: `AI returned invalid JSON: ${String(e)}`,
@@ -760,6 +887,7 @@ RULES:
     const VALID_CHART_TYPES = ["LINE", "BAR", "DONUT", "TABLE", "AREA", "SCATTER"] as const;
     const chartType = VALID_CHART_TYPES.includes(parsed.chartType) ? parsed.chartType : "TABLE";
 
+    console.log(`[CHAT /ask-upload] Success: chartType=${chartType}`);
     return res.json({
       success: true,
       response: {
@@ -775,7 +903,10 @@ RULES:
       columns,
     });
   } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message || String(err) });
+    const errMsg = extractErrorMessage(err);
+    console.error(`[CHAT /ask-upload] Unhandled error:`, errMsg);
+    console.error(`[CHAT /ask-upload] Stack:`, err.stack || err);
+    return res.status(500).json({ success: false, error: errMsg });
   }
 });
 

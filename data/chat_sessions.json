@@ -1,0 +1,52 @@
+[
+  {
+    "id": "0f4bef32-6241-4aea-a8d1-ebb3126a1a57",
+    "title": "Compare monthly sale...",
+    "connection_id": "777c57ec-72a4-453a-b1b4-7cb4f04de57f",
+    "connection_alias": "mongo",
+    "organization_id": "2f0f0f05-9fce-4e12-99f2-c548e27e50ea",
+    "user_id": "779392df-67f9-4f0f-a3b8-b3d27d687306",
+    "created_at": "2026-06-22T09:21:44.765Z",
+    "updated_at": "2026-06-22T09:30:54.800Z"
+  },
+  {
+    "id": "eda782fd-a0b9-4d22-8cb0-8b353cc79a16",
+    "title": "Show me a comparison...",
+    "connection_id": "777c57ec-72a4-453a-b1b4-7cb4f04de57f",
+    "connection_alias": "mongo",
+    "organization_id": "2f0f0f05-9fce-4e12-99f2-c548e27e50ea",
+    "user_id": "779392df-67f9-4f0f-a3b8-b3d27d687306",
+    "created_at": "2026-06-22T15:53:37.118Z",
+    "updated_at": "2026-06-22T15:56:52.370Z"
+  },
+  {
+    "id": "83fbd835-08c7-42aa-995a-650efd0a490e",
+    "title": "list me 5 employee n...",
+    "connection_id": "e01d34ff-a573-428c-a46b-791a504eca15",
+    "connection_alias": "mongo",
+    "organization_id": "19e0d50f-da1d-42fc-9405-dcc6ceda0596",
+    "user_id": "b5cbb798-f54a-4d91-b1c1-ee19d9aa79da",
+    "created_at": "2026-06-22T16:18:38.033Z",
+    "updated_at": "2026-06-22T16:22:16.105Z"
+  },
+  {
+    "id": "6c1c7171-fdad-449e-8653-92834b72e3aa",
+    "title": "Show total sales gen...",
+    "connection_id": "5af21c98-2179-4f30-b340-6ef85d176234",
+    "connection_alias": "mongo",
+    "organization_id": "df7d34ec-633f-4378-8eca-be6a85b3aeb7",
+    "user_id": "28ce8bd0-19d9-4cf6-bc5f-69a0ca208f49",
+    "created_at": "2026-06-22T16:42:47.030Z",
+    "updated_at": "2026-06-22T16:42:47.031Z"
+  },
+  {
+    "id": "b6fc4428-cbb1-4134-be5f-0e8efcf95240",
+    "title": "list me 5 employee n...",
+    "connection_id": "5af21c98-2179-4f30-b340-6ef85d176234",
+    "connection_alias": "mongo",
+    "organization_id": "df7d34ec-633f-4378-8eca-be6a85b3aeb7",
+    "user_id": "28ce8bd0-19d9-4cf6-bc5f-69a0ca208f49",
+    "created_at": "2026-06-22T16:49:40.415Z",
+    "updated_at": "2026-06-22T20:33:58.564Z"
+  }
+]

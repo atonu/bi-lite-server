@@ -1,0 +1,44 @@
+[
+  {
+    "id": "779392df-67f9-4f0f-a3b8-b3d27d687306",
+    "email": "atonu@email.com",
+    "name": "atonu",
+    "hashed_password": "$2b$10$EcluWl/tvsYeL6KqoUWz0uMZq1lqp0w/cf9PZnyCsRc5Eb4Jwm8Ia",
+    "role": "MEMBER",
+    "organization_id": "2f0f0f05-9fce-4e12-99f2-c548e27e50ea",
+    "created_at": "2026-06-22T09:20:33.888Z",
+    "updated_at": "2026-06-22T09:20:33.888Z"
+  },
+  {
+    "id": "c15a3199-2c5d-4db4-97c6-af5c7d8eaef3",
+    "email": "newprospect@example.com",
+    "name": "Test User",
+    "hashed_password": "$2b$10$jjyptB/fh2EB7nsKzFqFD.ousF0N6E5hnI8Fk/BlXTebX5oTPKxhG",
+    "role": "MEMBER",
+    "organization_id": "259f6766-32f9-4b46-b468-deab64914282",
+    "created_at": "2026-06-22T11:00:18.737Z",
+    "updated_at": "2026-06-22T11:00:18.737Z"
+  },
+  {
+    "id": "b5cbb798-f54a-4d91-b1c1-ee19d9aa79da",
+    "email": "atonu2@email.com",
+    "name": "atonu 2",
+    "hashed_password": "$2b$10$2lSThn28RvEpDac9Jl0jtOTlUe7BnakOGYsn4NyRJfRAI5.bA7TZi",
+    "role": "MEMBER",
+    "organization_id": "19e0d50f-da1d-42fc-9405-dcc6ceda0596",
+    "created_at": "2026-06-22T16:02:11.816Z",
+    "updated_at": "2026-06-22T16:02:11.816Z",
+    "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImI1Y2JiNzk4LWY1NGEtNGQ5MS1iMWMxLWVlMTlkOWFhNzlkYSIsInJvbGUiOiJNRU1CRVIiLCJvcmdhbml6YXRpb25JZCI6IjE5ZTBkNTBmLWRhMWQtNDJmYy05NDA1LWRjYzZjZWRhMDU5NiIsImlhdCI6MTc4MjE0NDE0MywiZXhwIjoxNzgyNzQ4OTQzfQ.NvDlqF8fEA9I8toA6c25JGApwIUtXQd6olf0rlgndzM"
+  },
+  {
+    "id": "28ce8bd0-19d9-4cf6-bc5f-69a0ca208f49",
+    "email": "testuser_chat_verif@example.com",
+    "name": "Test User",
+    "hashed_password": "$2b$10$aN4CspRXirfz9J0EVg/JK.VHQQ3aAC/cIQlEW4F85h9ep97XPwDaS",
+    "role": "MEMBER",
+    "organization_id": "df7d34ec-633f-4378-8eca-be6a85b3aeb7",
+    "created_at": "2026-06-22T16:32:08.272Z",
+    "updated_at": "2026-06-22T16:32:08.272Z",
+    "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjI4Y2U4YmQwLTE5ZDktNGNmNi1iYzVmLTY5YTBjYTIwOGY0OSIsInJvbGUiOiJNRU1CRVIiLCJvcmdhbml6YXRpb25JZCI6ImRmN2QzNGVjLTYzM2YtNDM3OC04ZWNhLWJlNmE4NWIzYWViNyIsImlhdCI6MTc4MjE0Njg1OCwiZXhwIjoxNzgyNzUxNjU4fQ.I_YwQwwjdI2BaYh6FrsAt7Z-sg0VGsWXhFqb77QOHD8"
+  }
+]
