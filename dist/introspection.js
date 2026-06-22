@@ -112,11 +112,21 @@ async function runIntrospection(connectionId, organizationId) {
                 const coll = mdb.collection(collName);
                 const samples = await coll.find({}).limit(100).toArray();
                 const fieldMap = new Map();
+                const distinctValues = new Map();
                 for (const doc of samples) {
                     const fields = collectFields(doc);
                     for (const f of fields) {
                         if (!fieldMap.has(f.path) || fieldMap.get(f.path) === "null") {
                             fieldMap.set(f.path, f.bsonType);
+                        }
+                        if (f.bsonType === "string" && f.value !== undefined && f.value !== null) {
+                            let valSet = distinctValues.get(f.path);
+                            if (!valSet) {
+                                valSet = new Set();
+                                distinctValues.set(f.path, valSet);
+                            }
+                            if (valSet.size < 10)
+                                valSet.add(f.value);
                         }
                     }
                 }
@@ -254,11 +264,21 @@ async function introspectTransientSchema(creds) {
                 const coll = mdb.collection(collName);
                 const samples = await coll.find({}).limit(100).toArray();
                 const fieldMap = new Map();
+                const distinctValues = new Map();
                 for (const doc of samples) {
                     const fields = collectFields(doc);
                     for (const f of fields) {
                         if (!fieldMap.has(f.path) || fieldMap.get(f.path) === "null") {
                             fieldMap.set(f.path, f.bsonType);
+                        }
+                        if (f.bsonType === "string" && f.value !== undefined && f.value !== null) {
+                            let valSet = distinctValues.get(f.path);
+                            if (!valSet) {
+                                valSet = new Set();
+                                distinctValues.set(f.path, valSet);
+                            }
+                            if (valSet.size < 10)
+                                valSet.add(f.value);
                         }
                     }
                 }
@@ -273,6 +293,7 @@ async function introspectTransientSchema(creds) {
                         isPrimaryKey: path === "_id",
                         columnDefault: null,
                         ordinalPosition: ordinal++,
+                        sampleValues: distinctValues.has(path) ? Array.from(distinctValues.get(path)) : null,
                     });
                 }
             }
@@ -322,7 +343,7 @@ function collectFields(obj, prefix = "") {
                                 : typeof value === "boolean"
                                     ? "bool"
                                     : "string";
-            fields.push({ path: fullPath, bsonType });
+            fields.push({ path: fullPath, bsonType, value });
         }
     }
     return fields;

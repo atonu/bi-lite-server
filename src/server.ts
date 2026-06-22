@@ -116,13 +116,17 @@ app.post("/api/connection/test", authMiddleware, async (req, res) => {
 
   try {
     if (creds.engine === "MONGODB") {
-      if (!creds.connectionUri) {
+      let testUri = creds.connectionUri;
+      if (testUri === "mongodb+srv://********************************************************") {
+        testUri = process.env.SAMPLE_DATASET_URI || "";
+      }
+      if (!testUri) {
         return res.status(400).json({ success: false, error: "Connection URI required." });
       }
       const client = await getMongoClient({
         id: "temp-test",
         engine: "MONGODB",
-        decryptedUri: creds.connectionUri,
+        decryptedUri: testUri,
         sslEnabled: creds.sslEnabled ?? false,
       });
       const info = await client.db().admin().serverInfo();
@@ -174,6 +178,9 @@ app.post("/api/connection/test", authMiddleware, async (req, res) => {
  */
 app.post("/api/connection/introspect", authMiddleware, async (req, res) => {
   const creds = req.body;
+  if (creds.connectionUri === "mongodb+srv://********************************************************") {
+    creds.connectionUri = process.env.SAMPLE_DATASET_URI || "";
+  }
   const result = await introspectTransientSchema(creds);
   return res.json(result);
 });

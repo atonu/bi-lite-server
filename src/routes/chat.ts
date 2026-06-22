@@ -28,10 +28,10 @@ const DEFAULT_MODEL = "deepseek/deepseek-chat-v3-0324";
 // ---------------------------------------------------------------------------
 
 const SqlAiResponseSchema = z.object({
-  sql: z.string().describe("A read-only SQL SELECT statement with no trailing semicolon."),
+  sql: z.string().describe("A read-only SQL SELECT statement with no trailing semicolon. If blocking a destructive operation, leave this empty or write 'BLOCKED'."),
   chartType: z
-    .enum(["LINE", "BAR", "DONUT", "TABLE", "AREA", "SCATTER"])
-    .describe("The most appropriate chart type for the data the query will return."),
+    .enum(["LINE", "BAR", "DONUT", "TABLE", "AREA", "SCATTER", "ERROR"])
+    .describe("The most appropriate chart type. MUST use ERROR if the user asks for a destructive operation (delete, drop, insert, update)."),
   chartTitle: z.string().describe("A concise, human-readable title for the chart (max 60 chars)."),
   xAxisKey: z.string().describe("The field name in the query result to use as the X axis or label."),
   yAxisKey: z
@@ -46,7 +46,7 @@ const SqlAiResponseSchema = z.object({
   reasoning: z
     .string()
     .describe(
-      "1-2 sentence plain English explanation of what the query measures and why this chart type was chosen."
+      "1-2 sentence explanation of the query. If chartType is ERROR, this MUST contain the reason the query was blocked."
     ),
 });
 
@@ -59,6 +59,7 @@ interface SchemaRow {
   isPrimaryKey: boolean;
   columnDefault: string | null;
   ordinalPosition: number;
+  sampleValues?: string[] | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -84,7 +85,10 @@ function formatSqlSchemaForPrompt(rows: SchemaRow[]): string {
       .map((c) => {
         const pk = c.isPrimaryKey ? " PRIMARY KEY" : "";
         const nullable = c.isNullable ? "" : " NOT NULL";
-        return `  ${c.columnName} ${c.dataType.toUpperCase()}${pk}${nullable}`;
+        const samples = c.sampleValues && c.sampleValues.length > 0
+          ? ` -- Sample values: ${c.sampleValues.slice(0, 5).join(", ")}`
+          : "";
+        return `  ${c.columnName} ${c.dataType.toUpperCase()}${pk}${nullable}${samples}`;
       })
       .join(",\n");
     blocks.push(`TABLE ${tableKey} (\n${columnDefs}\n);`);
@@ -111,7 +115,10 @@ function formatMongoSchemaForPrompt(rows: SchemaRow[]): string {
     const fieldDefs = sorted
       .map((f) => {
         const pk = f.isPrimaryKey ? "  // primary key" : "";
-        return `  ${f.columnName}: ${f.dataType}${pk}`;
+        const samples = f.sampleValues && f.sampleValues.length > 0
+          ? `  // Sample values: ${f.sampleValues.slice(0, 5).join(", ")}`
+          : "";
+        return `  ${f.columnName}: ${f.dataType}${pk}${samples}`;
       })
       .join(",\n");
     blocks.push(`COLLECTION ${collName} {\n${fieldDefs}\n}`);
@@ -129,13 +136,15 @@ function buildSqlSystemPrompt(schemaBlock: string): string {
 
 STRICT RULES — YOU MUST FOLLOW THESE OR THE RESPONSE WILL BE REJECTED:
 1. Output ONLY a SELECT statement. Never write INSERT, UPDATE, DELETE, DROP, ALTER, TRUNCATE, CREATE, GRANT, REVOKE, EXECUTE, CALL, or any DDL/DML.
-2. Do NOT include a trailing semicolon in the SQL string.
-3. Do NOT use CTEs with non-read-only side effects.
-4. Always LIMIT results to at most 500 rows unless the user explicitly asks for more.
-5. Prefer qualified column names (table.column) to avoid ambiguity.
-6. Use standard SQL-92 syntax compatible with PostgreSQL.
+2. If the user asks for ANY destructive operation (e.g., delete, drop, update, insert), you MUST NOT generate a SELECT query to show the data instead. You MUST reject the request entirely by returning exactly this JSON object instead of the standard output format: {"error": "Your explanation of why it is blocked"}
+3. Do NOT include a trailing semicolon in the SQL string.
+4. Do NOT use CTEs with non-read-only side effects.
+5. Always LIMIT results to at most 500 rows unless the user explicitly asks for more.
+6. Prefer qualified column names (table.column) to avoid ambiguity.
+7. Use standard SQL-92 syntax compatible with PostgreSQL.
 
 CHART SELECTION GUIDE:
+- ERROR: MUST be used if the user asks for ANY destructive operation (e.g. drop, delete, insert, update). Provide the reason in "reasoning" and leave sql empty. Do NOT generate a placeholder SELECT query to show the data instead.
 - LINE: Time-series data with a date/timestamp x-axis. Best for trends over time. If comparing multiple trend fields on the same X axis, include all comparison column names in "yAxisKeys" and put the primary one in "yAxisKey".
 - BAR: Categorical comparisons (e.g. sales by region, counts by category). Best for ranking.
 - DONUT: Part-of-whole relationships. Best when there are 2-8 distinct categories.
@@ -157,9 +166,9 @@ function buildMongoSystemPrompt(schemaBlock: string): string {
 You MUST respond with ONLY a single valid JSON object — no markdown, no explanation, no extra text. The JSON must have exactly these keys:
 
 {
-  "collection": "<collection name from schema>",
+  "collection": "<collection name from schema, or empty if ERROR>",
   "pipeline": [ ...aggregation stages... ],
-  "chartType": "TABLE" | "BAR" | "LINE" | "DONUT" | "AREA" | "SCATTER",
+  "chartType": "TABLE" | "BAR" | "LINE" | "DONUT" | "AREA" | "SCATTER" | "ERROR",
   "chartTitle": "<concise title, max 60 chars>",
   "xAxisKey": "<field name that will appear in result documents>",
   "yAxisKey": "<field name that will appear in result documents>",
@@ -172,8 +181,10 @@ PIPELINE RULES:
 - NEVER use server-side JS: $where, $function, $accumulator
 - Always include a $limit stage (max 500) unless the user asks for more
 - Use field names EXACTLY as they appear in the schema
+- If the user asks for ANY destructive operation (drop, delete, insert, update), you MUST reject it by returning exactly this JSON object instead of the one above: {"error": "Your explanation of why it is blocked"}. DO NOT generate a read-only query to show the data instead. You MUST abort and return the error JSON.
 
 CHART SELECTION:
+- ERROR: MUST be used if the user asks for ANY destructive operation (drop, delete, insert, update). Provide the reason in "reasoning" and leave pipeline empty []. Do NOT generate a read-only query to show the data instead.
 - TABLE: listing raw documents / many fields (use this for simple "show me" queries)
 - BAR: categorical comparisons
 - LINE: time-series trends (supports multi-line by specifying "yAxisKeys" array of fields)
@@ -564,6 +575,7 @@ router.post("/ask", async (req: any, res: Response) => {
       isPrimaryKey: r.is_primary_key,
       columnDefault: r.column_default,
       ordinalPosition: r.ordinal_position,
+      sampleValues: r.sample_values || null,
     }));
 
     if (conn.engine === "MONGODB") {
@@ -592,6 +604,13 @@ router.post("/ask", async (req: any, res: Response) => {
         });
       }
 
+      if (parsed.error || parsed.chartType === "ERROR") {
+        return res.status(400).json({
+          success: false,
+          error: parsed.error || parsed.reasoning || "Execution blocked: Destructive operation requested.",
+        });
+      }
+
       if (!parsed.collection || !Array.isArray(parsed.pipeline)) {
         return res.status(400).json({
           success: false,
@@ -604,7 +623,7 @@ router.post("/ask", async (req: any, res: Response) => {
         pipeline: parsed.pipeline,
       });
 
-      const VALID_CHART_TYPES = ["LINE", "BAR", "DONUT", "TABLE", "AREA", "SCATTER"] as const;
+      const VALID_CHART_TYPES = ["LINE", "BAR", "DONUT", "TABLE", "AREA", "SCATTER", "ERROR"] as const;
       const chartType = VALID_CHART_TYPES.includes(parsed.chartType) ? parsed.chartType : "TABLE";
 
       return res.json({
@@ -631,6 +650,13 @@ router.post("/ask", async (req: any, res: Response) => {
       prompt: question,
       temperature: 0.1,
     });
+
+    if (object.chartType === "ERROR") {
+      return res.status(400).json({
+        success: false,
+        error: object.reasoning || "Execution blocked: Destructive operation requested.",
+      });
+    }
 
     return res.json({
       success: true,

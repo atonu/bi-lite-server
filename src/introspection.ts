@@ -11,6 +11,7 @@ export interface ColumnMetadata {
   isPrimaryKey: boolean;
   columnDefault: string | null;
   ordinalPosition: number;
+  sampleValues?: string[] | null;
 }
 
 /**
@@ -151,11 +152,21 @@ export async function runIntrospection(
         const samples = await coll.find({}).limit(100).toArray();
 
         const fieldMap = new Map<string, string>();
+        const distinctValues = new Map<string, Set<any>>();
+
         for (const doc of samples) {
           const fields = collectFields(doc as Record<string, any>);
           for (const f of fields) {
             if (!fieldMap.has(f.path) || fieldMap.get(f.path) === "null") {
               fieldMap.set(f.path, f.bsonType);
+            }
+            if (f.bsonType === "string" && f.value !== undefined && f.value !== null) {
+              let valSet = distinctValues.get(f.path);
+              if (!valSet) {
+                valSet = new Set();
+                distinctValues.set(f.path, valSet);
+              }
+              if (valSet.size < 10) valSet.add(f.value);
             }
           }
         }
@@ -333,11 +344,20 @@ export async function introspectTransientSchema(
         const samples = await coll.find({}).limit(100).toArray();
 
         const fieldMap = new Map<string, string>();
+        const distinctValues = new Map<string, Set<any>>();
         for (const doc of samples) {
           const fields = collectFields(doc as Record<string, any>);
           for (const f of fields) {
             if (!fieldMap.has(f.path) || fieldMap.get(f.path) === "null") {
               fieldMap.set(f.path, f.bsonType);
+            }
+            if (f.bsonType === "string" && f.value !== undefined && f.value !== null) {
+              let valSet = distinctValues.get(f.path);
+              if (!valSet) {
+                valSet = new Set();
+                distinctValues.set(f.path, valSet);
+              }
+              if (valSet.size < 10) valSet.add(f.value);
             }
           }
         }
@@ -353,6 +373,7 @@ export async function introspectTransientSchema(
             isPrimaryKey: path === "_id",
             columnDefault: null,
             ordinalPosition: ordinal++,
+            sampleValues: distinctValues.has(path) ? Array.from(distinctValues.get(path)!) : null,
           });
         }
       }
@@ -372,8 +393,8 @@ export async function introspectTransientSchema(
 function collectFields(
   obj: Record<string, any>,
   prefix = ""
-): Array<{ path: string; bsonType: string }> {
-  const fields: Array<{ path: string; bsonType: string }> = [];
+): Array<{ path: string; bsonType: string; value?: any }> {
+  const fields: Array<{ path: string; bsonType: string; value?: any }> = [];
   for (const [key, value] of Object.entries(obj)) {
     const fullPath = prefix ? `${prefix}.${key}` : key;
     if (
@@ -405,7 +426,7 @@ function collectFields(
         : typeof value === "boolean"
           ? "bool"
           : "string";
-      fields.push({ path: fullPath, bsonType });
+      fields.push({ path: fullPath, bsonType, value });
     }
   }
   return fields;
