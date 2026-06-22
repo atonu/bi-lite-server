@@ -10,17 +10,23 @@
   },
   "dependencies": {
     "@ai-sdk/deepseek": "^2.0.35",
+    "@ai-sdk/openai": "^3.0.73",
+    "@types/multer": "^2.1.0",
+    "@types/uuid": "^10.0.0",
     "ai": "^6.0.199",
     "bcryptjs": "^3.0.3",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
+    "csv-parse": "^7.0.0",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "jsonwebtoken": "^9.0.3",
     "mongodb": "^6.8.0",
+    "multer": "^2.2.0",
     "nodemailer": "^8.0.10",
     "pg": "^8.12.0",
     "swagger-ui-express": "^5.0.1",
+    "uuid": "^14.0.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {

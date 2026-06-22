@@ -1,7 +1,6 @@
-import { MongoClient, ObjectId } from "mongodb";
 import { getPgPool, getMongoClient as getTargetMongoClient } from "./pool-manager";
 import { decryptPassword } from "./crypto-helper";
-import { getControlDb } from "./query-job";
+import { getControlDb } from "./json-db";
 
 export interface ColumnMetadata {
   tableSchema: string;
@@ -25,9 +24,9 @@ export async function runIntrospection(
   const connColl = controlDb.collection("database_connections");
   const metaColl = controlDb.collection("schema_metadata");
 
-  const connection = await connColl.findOne({
-    _id: new ObjectId(connectionId),
-    organization_id: new ObjectId(organizationId),
+  const connection = connColl.findOne({
+    id: connectionId,
+    organization_id: organizationId,
   });
 
   if (!connection) {
@@ -36,7 +35,7 @@ export async function runIntrospection(
 
   try {
     // Clear existing metadata for this connection
-    await metaColl.deleteMany({ connection_id: new ObjectId(connectionId) });
+    metaColl.deleteMany({ connection_id: connectionId });
 
     let tablesCount = 0;
 
@@ -99,7 +98,7 @@ export async function runIntrospection(
           `, [tbl.table_schema, tbl.table_name]);
 
           const docs = colsResult.rows.map((row) => ({
-            connection_id: new ObjectId(connectionId),
+            connection_id: connectionId,
             table_schema: tbl.table_schema,
             table_name: tbl.table_name,
             column_name: row.column_name,
@@ -108,11 +107,11 @@ export async function runIntrospection(
             is_primary_key: pkSet.has(`${tbl.table_schema}.${tbl.table_name}.${row.column_name}`),
             column_default: row.column_default,
             ordinal_position: row.ordinal_position,
-            introspected_at: new Date(),
+            introspected_at: new Date().toISOString(),
           }));
 
           if (docs.length > 0) {
-            await metaColl.insertMany(docs);
+            metaColl.insertMany(docs);
           }
         }
       } finally {
@@ -122,7 +121,7 @@ export async function runIntrospection(
       const decryptedUri = decryptPassword(connection.encrypted_uri);
       const client = await getTargetMongoClient({
         id: connectionId,
-        engine: "MONGODB",
+        engine: "MONGODB" as const,
         decryptedUri,
         sslEnabled: connection.ssl_enabled ?? false,
       });
@@ -165,7 +164,7 @@ export async function runIntrospection(
         const docs = [];
         for (const [path, bsonType] of fieldMap) {
           docs.push({
-            connection_id: new ObjectId(connectionId),
+            connection_id: connectionId,
             table_schema: connection.db_name || "default",
             table_name: collName,
             column_name: path,
@@ -174,12 +173,12 @@ export async function runIntrospection(
             is_primary_key: path === "_id",
             column_default: null,
             ordinal_position: ordinal++,
-            introspected_at: new Date(),
+            introspected_at: new Date().toISOString(),
           });
         }
 
         if (docs.length > 0) {
-          await metaColl.insertMany(docs);
+          metaColl.insertMany(docs);
         }
       }
     } else {
@@ -187,17 +186,17 @@ export async function runIntrospection(
     }
 
     // Success: mark connection state as CONNECTED
-    await connColl.updateOne(
-      { _id: new ObjectId(connectionId) },
-      { $set: { status: "CONNECTED", lastTestedAt: new Date() } }
+    connColl.updateOne(
+      { id: connectionId },
+      { $set: { status: "CONNECTED", lastTestedAt: new Date().toISOString() } }
     );
 
     return { success: true, tablesCount };
   } catch (err: any) {
     console.error("Introspection failed:", err);
-    await connColl.updateOne(
-      { _id: new ObjectId(connectionId) },
-      { $set: { status: "FAILED", lastTestedAt: new Date() } }
+    connColl.updateOne(
+      { id: connectionId },
+      { $set: { status: "FAILED", lastTestedAt: new Date().toISOString() } }
     );
     return { success: false, error: err.message || String(err) };
   }

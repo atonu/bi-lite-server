@@ -2,27 +2,26 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.runIntrospection = runIntrospection;
 exports.introspectTransientSchema = introspectTransientSchema;
-const mongodb_1 = require("mongodb");
 const pool_manager_1 = require("./pool-manager");
 const crypto_helper_1 = require("./crypto-helper");
-const query_job_1 = require("./query-job");
+const json_db_1 = require("./json-db");
 /**
  * Runs incremental database schema introspection and writes results straight to the control-plane MongoDB.
  */
 async function runIntrospection(connectionId, organizationId) {
-    const controlDb = await (0, query_job_1.getControlDb)();
+    const controlDb = await (0, json_db_1.getControlDb)();
     const connColl = controlDb.collection("database_connections");
     const metaColl = controlDb.collection("schema_metadata");
-    const connection = await connColl.findOne({
-        _id: new mongodb_1.ObjectId(connectionId),
-        organization_id: new mongodb_1.ObjectId(organizationId),
+    const connection = connColl.findOne({
+        id: connectionId,
+        organization_id: organizationId,
     });
     if (!connection) {
         return { success: false, error: "Connection not found or unauthorized." };
     }
     try {
         // Clear existing metadata for this connection
-        await metaColl.deleteMany({ connection_id: new mongodb_1.ObjectId(connectionId) });
+        metaColl.deleteMany({ connection_id: connectionId });
         let tablesCount = 0;
         if (connection.engine === "POSTGRESQL") {
             const decryptedPassword = (0, crypto_helper_1.decryptPassword)(connection.encrypted_password);
@@ -65,7 +64,7 @@ async function runIntrospection(connectionId, organizationId) {
             ORDER BY ordinal_position
           `, [tbl.table_schema, tbl.table_name]);
                     const docs = colsResult.rows.map((row) => ({
-                        connection_id: new mongodb_1.ObjectId(connectionId),
+                        connection_id: connectionId,
                         table_schema: tbl.table_schema,
                         table_name: tbl.table_name,
                         column_name: row.column_name,
@@ -74,10 +73,10 @@ async function runIntrospection(connectionId, organizationId) {
                         is_primary_key: pkSet.has(`${tbl.table_schema}.${tbl.table_name}.${row.column_name}`),
                         column_default: row.column_default,
                         ordinal_position: row.ordinal_position,
-                        introspected_at: new Date(),
+                        introspected_at: new Date().toISOString(),
                     }));
                     if (docs.length > 0) {
-                        await metaColl.insertMany(docs);
+                        metaColl.insertMany(docs);
                     }
                 }
             }
@@ -125,7 +124,7 @@ async function runIntrospection(connectionId, organizationId) {
                 const docs = [];
                 for (const [path, bsonType] of fieldMap) {
                     docs.push({
-                        connection_id: new mongodb_1.ObjectId(connectionId),
+                        connection_id: connectionId,
                         table_schema: connection.db_name || "default",
                         table_name: collName,
                         column_name: path,
@@ -134,11 +133,11 @@ async function runIntrospection(connectionId, organizationId) {
                         is_primary_key: path === "_id",
                         column_default: null,
                         ordinal_position: ordinal++,
-                        introspected_at: new Date(),
+                        introspected_at: new Date().toISOString(),
                     });
                 }
                 if (docs.length > 0) {
-                    await metaColl.insertMany(docs);
+                    metaColl.insertMany(docs);
                 }
             }
         }
@@ -146,12 +145,12 @@ async function runIntrospection(connectionId, organizationId) {
             return { success: false, error: `Engine ${connection.engine} not supported.` };
         }
         // Success: mark connection state as CONNECTED
-        await connColl.updateOne({ _id: new mongodb_1.ObjectId(connectionId) }, { $set: { status: "CONNECTED", lastTestedAt: new Date() } });
+        connColl.updateOne({ id: connectionId }, { $set: { status: "CONNECTED", lastTestedAt: new Date().toISOString() } });
         return { success: true, tablesCount };
     }
     catch (err) {
         console.error("Introspection failed:", err);
-        await connColl.updateOne({ _id: new mongodb_1.ObjectId(connectionId) }, { $set: { status: "FAILED", lastTestedAt: new Date() } });
+        connColl.updateOne({ id: connectionId }, { $set: { status: "FAILED", lastTestedAt: new Date().toISOString() } });
         return { success: false, error: err.message || String(err) };
     }
 }
