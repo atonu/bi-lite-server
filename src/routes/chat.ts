@@ -624,7 +624,6 @@ router.post("/ask", async (req: any, res: Response) => {
 
     if (conn.engine === "MONGODB") {
       const systemPrompt = buildMongoSystemPrompt(formatMongoSchemaForPrompt(rows));
-      console.log(`[CHAT /ask] MongoDB mode, model=${model}, question="${question.slice(0, 80)}..."`);
 
       let result;
       try {
@@ -685,7 +684,6 @@ router.post("/ask", async (req: any, res: Response) => {
       const VALID_CHART_TYPES = ["LINE", "BAR", "DONUT", "TABLE", "AREA", "SCATTER", "ERROR"] as const;
       const chartType = VALID_CHART_TYPES.includes(parsed.chartType) ? parsed.chartType : "TABLE";
 
-      console.log(`[CHAT /ask] MongoDB success: chartType=${chartType}, collection=${parsed.collection}`);
       return res.json({
         success: true,
         response: {
@@ -704,8 +702,6 @@ router.post("/ask", async (req: any, res: Response) => {
     // SQL path — use generateText + JSON parsing for broad OpenRouter model compatibility
     const sqlSystemPrompt = buildSqlSystemPrompt(formatSqlSchemaForPrompt(rows))
       + `\n\nYou MUST respond with ONLY a single valid JSON object — no markdown, no explanation, no extra text. The JSON must have exactly these keys:\n{\n  "sql": "<SELECT statement with no trailing semicolon>",\n  "chartType": "LINE" | "BAR" | "DONUT" | "TABLE" | "AREA" | "SCATTER" | "ERROR",\n  "chartTitle": "<concise title, max 60 chars>",\n  "xAxisKey": "<field name for X axis>",\n  "yAxisKey": "<primary field name for Y axis>",\n  "yAxisKeys": ["<optional additional Y axis field names>"],\n  "reasoning": "<1-2 sentence explanation>"\n}`;
-
-    console.log(`[CHAT /ask] SQL mode, model=${model}, question="${question.slice(0, 80)}..."`);
 
     let sqlResult;
     try {
@@ -765,7 +761,6 @@ router.post("/ask", async (req: any, res: Response) => {
       reasoning: object.reasoning || "",
     };
 
-    console.log(`[CHAT /ask] SQL success: chartType=${response.chartType}, sql="${response.sql.slice(0, 100)}..."`);
     return res.json({
       success: true,
       response,
@@ -824,8 +819,6 @@ router.post("/ask-upload", async (req: any, res: Response) => {
     if (!question || !columns || !sampleRows) {
       return res.status(400).json({ success: false, error: "Missing required parameters." });
     }
-
-    console.log(`[CHAT /ask-upload] model=${model}, question="${question.slice(0, 80)}...", columns=${columns.length}`);
 
     const dataSchema = `UPLOADED DATA COLUMNS:\n${columns.join(", ")}\n\nSAMPLE ROWS (first 5):\n${JSON.stringify(sampleRows.slice(0, 5), null, 2)}`;
 
@@ -887,7 +880,6 @@ RULES:
     const VALID_CHART_TYPES = ["LINE", "BAR", "DONUT", "TABLE", "AREA", "SCATTER"] as const;
     const chartType = VALID_CHART_TYPES.includes(parsed.chartType) ? parsed.chartType : "TABLE";
 
-    console.log(`[CHAT /ask-upload] Success: chartType=${chartType}`);
     return res.json({
       success: true,
       response: {

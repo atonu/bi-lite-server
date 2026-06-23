@@ -18,24 +18,6 @@
     "updated_at": "2026-06-22T09:21:35.267Z"
   },
   {
-    "id": "e01d34ff-a573-428c-a46b-791a504eca15",
-    "alias": "mongo",
-    "engine": "MONGODB",
-    "host": "",
-    "port": 5432,
-    "db_name": "bilite-test",
-    "db_user": "postgres",
-    "encrypted_password": null,
-    "ssl_enabled": false,
-    "encrypted_uri": "ad20254662edd382ef518c61.ef2b8cbb19d724e890e8f13f193b436d.9c7994ae8eaa0b4175c56728fd73a4b74f6b6a7f4e904afe9b8897554149c8199931e2c149fbbfc348369724d291cc4bfb5e659d8539bbee67bb8e7ee634f35a93fef515ee6b0da115a4ef02f08cf130dc",
-    "unique_key": "56111872a6f226121f5ce6910c987900a2dd96d342ca13417e678096017aa2ca",
-    "status": "CONNECTED",
-    "last_tested_at": "2026-06-22T16:18:27.305Z",
-    "organization_id": "19e0d50f-da1d-42fc-9405-dcc6ceda0596",
-    "created_at": "2026-06-22T16:18:27.305Z",
-    "updated_at": "2026-06-22T16:18:27.305Z"
-  },
-  {
     "id": "5af21c98-2179-4f30-b340-6ef85d176234",
     "alias": "mongo",
     "engine": "MONGODB",

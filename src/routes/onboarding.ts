@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { getControlDb, newId } from "../json-db";
+import { LINK_EXPIRY } from "../constants";
 
 const router = Router();
 
@@ -83,10 +84,43 @@ router.get("/prospect/:id", async (req, res) => {
       return res.status(404).json({ error: "Prospect user not found or link has expired." });
     }
 
-    // Don't expose created_at or internal fields
-    return res.json({ name: prospect.name, email: prospect.email });
+    // Check expiration (LINK_EXPIRY)
+    if (prospect.created_at) {
+      const createdTime = new Date(prospect.created_at).getTime();
+      const diffMs = Date.now() - createdTime;
+      if (diffMs > LINK_EXPIRY) {
+        await deleteProspectUser(id);
+        return res.status(404).json({ error: "Prospect user not found or link has expired." });
+      }
+    }
+
+    // Expose createdAt for front-end verification
+    return res.json({ name: prospect.name, email: prospect.email, createdAt: prospect.created_at });
   } catch (err: any) {
     console.error("Prospect lookup error:", err);
+    return res.status(500).json({ error: "Internal server error." });
+  }
+});
+
+/**
+ * Deletes a prospect user / onboarding link by ID.
+ */
+export async function deleteProspectUser(id: string) {
+  const db = await getControlDb();
+  db.collection("prospect_users").deleteOne({ id });
+}
+
+/**
+ * DELETE /api/onboard/prospect/:id
+ * Public API to delete prospect user data / onboarding link.
+ */
+router.delete("/prospect/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    await deleteProspectUser(id);
+    return res.json({ success: true, message: "Prospect user / onboarding link deleted successfully." });
+  } catch (err: any) {
+    console.error("Prospect deletion error:", err);
     return res.status(500).json({ error: "Internal server error." });
   }
 });

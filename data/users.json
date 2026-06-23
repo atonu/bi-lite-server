@@ -28,7 +28,7 @@
     "organization_id": "19e0d50f-da1d-42fc-9405-dcc6ceda0596",
     "created_at": "2026-06-22T16:02:11.816Z",
     "updated_at": "2026-06-22T16:02:11.816Z",
-    "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImI1Y2JiNzk4LWY1NGEtNGQ5MS1iMWMxLWVlMTlkOWFhNzlkYSIsInJvbGUiOiJNRU1CRVIiLCJvcmdhbml6YXRpb25JZCI6IjE5ZTBkNTBmLWRhMWQtNDJmYy05NDA1LWRjYzZjZWRhMDU5NiIsImlhdCI6MTc4MjE0NDE0MywiZXhwIjoxNzgyNzQ4OTQzfQ.NvDlqF8fEA9I8toA6c25JGApwIUtXQd6olf0rlgndzM"
+    "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImI1Y2JiNzk4LWY1NGEtNGQ5MS1iMWMxLWVlMTlkOWFhNzlkYSIsInJvbGUiOiJNRU1CRVIiLCJvcmdhbml6YXRpb25JZCI6IjE5ZTBkNTBmLWRhMWQtNDJmYy05NDA1LWRjYzZjZWRhMDU5NiIsImlhdCI6MTc4MjIxNjQwNiwiZXhwIjoxNzgyODIxMjA2fQ.IpL9Rp6eOuh6-ggoMWdW31_W4axgfJNeqkrM2R_yaNM"
   },
   {
     "id": "28ce8bd0-19d9-4cf6-bc5f-69a0ca208f49",
@@ -39,6 +39,36 @@
     "organization_id": "df7d34ec-633f-4378-8eca-be6a85b3aeb7",
     "created_at": "2026-06-22T16:32:08.272Z",
     "updated_at": "2026-06-22T16:32:08.272Z",
-    "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjI4Y2U4YmQwLTE5ZDktNGNmNi1iYzVmLTY5YTBjYTIwOGY0OSIsInJvbGUiOiJNRU1CRVIiLCJvcmdhbml6YXRpb25JZCI6ImRmN2QzNGVjLTYzM2YtNDM3OC04ZWNhLWJlNmE4NWIzYWViNyIsImlhdCI6MTc4MjE0Njg1OCwiZXhwIjoxNzgyNzUxNjU4fQ.I_YwQwwjdI2BaYh6FrsAt7Z-sg0VGsWXhFqb77QOHD8"
+    "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjI4Y2U4YmQwLTE5ZDktNGNmNi1iYzVmLTY5YTBjYTIwOGY0OSIsInJvbGUiOiJNRU1CRVIiLCJvcmdhbml6YXRpb25JZCI6ImRmN2QzNGVjLTYzM2YtNDM3OC04ZWNhLWJlNmE4NWIzYWViNyIsImlhdCI6MTc4MjE2MDU3OSwiZXhwIjoxNzgyNzY1Mzc5fQ.FOoyKe3pvERJbKcK0DsfkLt7MF1DSucG-EY-2o5_w-Q"
+  },
+  {
+    "id": "924b9090-687b-494f-a60e-9007836b6216",
+    "email": "test@yopmail.com",
+    "name": "Test User",
+    "hashed_password": "$2b$10$EqEB5ymZltRYsuAA1D6DieYgrscVJBoDSuv5HW/JYjE.HqAgpOUQ6",
+    "role": "MEMBER",
+    "organization_id": "5b022fb0-b744-4fbb-86ba-d97cac30bd90",
+    "created_at": "2026-06-23T10:22:34.797Z",
+    "updated_at": "2026-06-23T10:22:34.797Z"
+  },
+  {
+    "id": "a868b5b3-0216-46fa-b548-4b2fc50d6f15",
+    "email": "alice@company2.com",
+    "name": "Alice Smith 2",
+    "hashed_password": "$2b$10$VY7ze3KFJr/g3wcqcQIpluZdYu6L57nXTSWpkQdfj/3b41ydbOJxO",
+    "role": "MEMBER",
+    "organization_id": "bcf5a2d7-8988-495c-9d90-3b543dbd0598",
+    "created_at": "2026-06-23T11:29:22.613Z",
+    "updated_at": "2026-06-23T11:29:22.613Z"
+  },
+  {
+    "id": "183b20d9-fd2d-40b0-ad74-0588c77f73ba",
+    "email": "alice@company4.com",
+    "name": "Alice Smith 4",
+    "hashed_password": "$2b$10$PtDPh3JHWpLQN/2ZHqzoRuIhn9dODiktjFHEYofkhULj3XO8F7eyi",
+    "role": "MEMBER",
+    "organization_id": "21e1ffd7-176c-4664-a466-2c2deafaa2ca",
+    "created_at": "2026-06-23T11:30:23.609Z",
+    "updated_at": "2026-06-23T11:30:23.609Z"
   }
 ]
