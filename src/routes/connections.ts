@@ -1,7 +1,6 @@
 import { Router, Response } from "express";
 import crypto from "crypto";
-import { MongoClient, ObjectId } from "mongodb";
-import { getControlDb } from "../query-job";
+import { getControlDb, newId } from "../json-db";
 import { encryptPassword } from "../crypto-helper";
 
 const router = Router();
@@ -49,18 +48,13 @@ router.get("/", async (req: any, res: Response) => {
     }
 
     const controlDb = await getControlDb();
-    const connColl = controlDb.collection("database_connections");
-
-    const connections = await connColl
-      .find({
-        organization_id: new ObjectId(organizationId),
-        status: "CONNECTED",
-      })
-      .sort({ created_at: -1 })
-      .toArray();
+    const connections = controlDb.collection("database_connections").findMany(
+      { organization_id: organizationId, status: "CONNECTED" },
+      { sort: { created_at: -1 } }
+    );
 
     const formatted = connections.map((c) => ({
-      id: c._id.toString(),
+      id: c.id,
       alias: c.alias,
       engine: c.engine,
       host: c.host,
@@ -86,17 +80,13 @@ router.get("/all", async (req: any, res: Response) => {
     }
 
     const controlDb = await getControlDb();
-    const connColl = controlDb.collection("database_connections");
-
-    const connections = await connColl
-      .find({
-        organization_id: new ObjectId(organizationId),
-      })
-      .sort({ created_at: -1 })
-      .toArray();
+    const connections = controlDb.collection("database_connections").findMany(
+      { organization_id: organizationId },
+      { sort: { created_at: -1 } }
+    );
 
     const formatted = connections.map((c) => ({
-      id: c._id.toString(),
+      id: c.id,
       alias: c.alias,
       engine: c.engine,
       host: c.host,
@@ -160,9 +150,9 @@ router.post("/", async (req: any, res: Response) => {
     const schemaColl = controlDb.collection("schema_metadata");
 
     // Check unique key fingerprint
-    const existing = await connColl.findOne({
+    const existing = connColl.findOne({
       unique_key: uniqueKey,
-      organization_id: new ObjectId(organizationId),
+      organization_id: organizationId,
     });
 
     if (existing) {
@@ -173,8 +163,8 @@ router.post("/", async (req: any, res: Response) => {
         });
       } else {
         // Delete the inactive/failed connection
-        await connColl.deleteOne({ _id: existing._id });
-        await schemaColl.deleteMany({ connection_id: existing._id });
+        connColl.deleteOne({ id: existing.id });
+        schemaColl.deleteMany({ connection_id: existing.id });
       }
     }
 
@@ -194,11 +184,11 @@ router.post("/", async (req: any, res: Response) => {
       }
     }
 
-    const connectionId = new ObjectId();
+    const connectionId = newId();
 
     // Insert new connection record
-    await connColl.insertOne({
-      _id: connectionId,
+    connColl.insertOne({
+      id: connectionId,
       alias: creds.alias,
       engine: creds.engine,
       host: creds.host ?? null,
@@ -210,15 +200,15 @@ router.post("/", async (req: any, res: Response) => {
       encrypted_uri: encryptedUri,
       unique_key: uniqueKey,
       status: "CONNECTED",
-      last_tested_at: new Date(),
-      organization_id: new ObjectId(organizationId),
-      created_at: new Date(),
-      updated_at: new Date(),
+      last_tested_at: new Date().toISOString(),
+      organization_id: organizationId,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     });
 
     // Bulk-insert schema metadata
     if (columns && columns.length > 0) {
-      await schemaColl.insertMany(
+      schemaColl.insertMany(
         columns.map((col) => ({
           table_schema: col.tableSchema,
           table_name: col.tableName,
@@ -229,12 +219,12 @@ router.post("/", async (req: any, res: Response) => {
           column_default: col.columnDefault,
           ordinal_position: col.ordinalPosition,
           connection_id: connectionId,
-          introspected_at: new Date(),
+          introspected_at: new Date().toISOString(),
         }))
       );
     }
 
-    return res.json({ success: true, connectionId: connectionId.toString() });
+    return res.json({ success: true, connectionId });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message || String(err) });
   }
@@ -259,30 +249,23 @@ router.delete("/:id", async (req: any, res: Response) => {
     const chatSessionsColl = controlDb.collection("chat_sessions");
 
     // Verify ownership
-    const exists = await connColl.findOne({
-      _id: new ObjectId(connectionId),
-      organization_id: new ObjectId(organizationId),
-    });
+    const exists = connColl.findOne({ id: connectionId, organization_id: organizationId });
 
     if (!exists) {
       return res.status(404).json({ success: false, error: "Connection not found or unauthorized." });
     }
 
     // Cascade delete schema metadata
-    await schemaColl.deleteMany({
-      connection_id: new ObjectId(connectionId),
-    });
+    schemaColl.deleteMany({ connection_id: connectionId });
 
     // Nullify references in chat sessions
-    await chatSessionsColl.updateMany(
-      { connection_id: new ObjectId(connectionId) },
+    chatSessionsColl.updateMany(
+      { connection_id: connectionId },
       { $set: { connection_id: null } }
     );
 
     // Delete connection itself
-    await connColl.deleteOne({
-      _id: new ObjectId(connectionId),
-    });
+    connColl.deleteOne({ id: connectionId });
 
     return res.json({ success: true });
   } catch (err: any) {
@@ -307,19 +290,15 @@ router.patch("/:id/alias", async (req: any, res: Response) => {
     const controlDb = await getControlDb();
     const connColl = controlDb.collection("database_connections");
 
-    // Verify ownership
-    const exists = await connColl.findOne({
-      _id: new ObjectId(connectionId),
-      organization_id: new ObjectId(organizationId),
-    });
+    const exists = connColl.findOne({ id: connectionId, organization_id: organizationId });
 
     if (!exists) {
       return res.status(404).json({ success: false, error: "Connection not found or unauthorized." });
     }
 
-    await connColl.updateOne(
-      { _id: new ObjectId(connectionId) },
-      { $set: { alias, updated_at: new Date() } }
+    connColl.updateOne(
+      { id: connectionId },
+      { $set: { alias, updated_at: new Date().toISOString() } }
     );
 
     return res.json({ success: true });
@@ -345,20 +324,16 @@ router.get("/:id/schema", async (req: any, res: Response) => {
     const connColl = controlDb.collection("database_connections");
     const schemaColl = controlDb.collection("schema_metadata");
 
-    // Verify ownership
-    const conn = await connColl.findOne({
-      _id: new ObjectId(connectionId),
-      organization_id: new ObjectId(organizationId),
-    });
+    const conn = connColl.findOne({ id: connectionId, organization_id: organizationId });
 
     if (!conn) {
       return res.status(404).json({ error: "Connection not found or unauthorized." });
     }
 
-    const schemaRows = await schemaColl
-      .find({ connection_id: new ObjectId(connectionId) })
-      .sort({ table_schema: 1, table_name: 1, ordinal_position: 1 })
-      .toArray();
+    const schemaRows = schemaColl.findMany(
+      { connection_id: connectionId },
+      { sort: { ordinal_position: 1 } }
+    );
 
     const formatted = schemaRows.map((row) => ({
       tableSchema: row.table_schema,

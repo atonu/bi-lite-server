@@ -3,9 +3,8 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import nodemailer from "nodemailer";
 import crypto from "crypto";
-import { getControlDb } from "../query-job";
+import { getControlDb, newId } from "../json-db";
 import { ACCESS_TOKEN_EXPIRY, REFRESH_TOKEN_EXPIRY } from "../constants";
-import { ObjectId } from "mongodb";
 
 const router = Router();
 
@@ -24,7 +23,7 @@ const transporter = nodemailer.createTransport({
 
 router.post("/register", async (req, res) => {
   try {
-    const { email, password, name } = req.body;
+    const { email, password, name, prospectId } = req.body;
     if (!email || !password || !name) {
       return res.status(400).json({ error: "Email, password, and name are required." });
     }
@@ -33,36 +32,41 @@ router.post("/register", async (req, res) => {
     const usersColl = db.collection("users");
     const orgsColl = db.collection("organizations");
 
-    const existingUser = await usersColl.findOne({ email: email.toLowerCase() });
+    const existingUser = usersColl.findOne({ email: email.toLowerCase() });
     if (existingUser) {
       return res.status(400).json({ error: "User already exists." });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    const orgId = new ObjectId();
-    const userId = new ObjectId();
+    const orgId = newId();
+    const userId = newId();
 
     const baseSlug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
     const slug = `${baseSlug || "org"}-${Math.random().toString(36).substring(2, 6)}`;
 
-    await orgsColl.insertOne({
-      _id: orgId,
+    orgsColl.insertOne({
+      id: orgId,
       name: `${name}'s Workspace`,
       slug,
-      created_at: new Date(),
-      updated_at: new Date(),
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     });
 
-    await usersColl.insertOne({
-      _id: userId,
+    usersColl.insertOne({
+      id: userId,
       email: email.toLowerCase(),
       name,
       hashed_password: hashedPassword,
       role: "MEMBER",
       organization_id: orgId,
-      created_at: new Date(),
-      updated_at: new Date(),
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     });
+
+    // Clean up prospect user if this was an onboarding flow
+    if (prospectId) {
+      db.collection("prospect_users").deleteOne({ id: prospectId });
+    }
 
     res.json({ success: true, message: "User registered successfully." });
   } catch (error) {
@@ -80,7 +84,7 @@ router.post("/login", async (req, res) => {
 
     const db = await getControlDb();
     const usersColl = db.collection("users");
-    const user = await usersColl.findOne({ email: email.toLowerCase() });
+    const user = usersColl.findOne({ email: email.toLowerCase() });
 
     if (!user || !user.hashed_password) {
       return res.status(401).json({ error: "Invalid credentials." });
@@ -92,16 +96,16 @@ router.post("/login", async (req, res) => {
     }
 
     const tokenPayload = {
-      id: user._id.toString(),
+      id: user.id,
       role: user.role,
-      organizationId: user.organization_id.toString(),
+      organizationId: user.organization_id,
     };
 
     const accessToken = jwt.sign(tokenPayload, BACKEND_SECRET, { expiresIn: ACCESS_TOKEN_EXPIRY });
     const refreshToken = jwt.sign(tokenPayload, REFRESH_SECRET, { expiresIn: REFRESH_TOKEN_EXPIRY });
 
-    await usersColl.updateOne(
-      { _id: user._id },
+    usersColl.updateOne(
+      { id: user.id },
       { $set: { refresh_token: refreshToken } }
     );
 
@@ -117,7 +121,7 @@ router.post("/login", async (req, res) => {
       success: true,
       accessToken,
       user: {
-        id: user._id,
+        id: user.id,
         name: user.name,
         email: user.email,
         role: user.role,
@@ -138,19 +142,19 @@ router.post("/refresh-token", async (req, res) => {
     }
 
     const decoded = jwt.verify(refreshToken, REFRESH_SECRET) as any;
-    
+
     const db = await getControlDb();
     const usersColl = db.collection("users");
-    const user = await usersColl.findOne({ _id: new ObjectId(decoded.id), refresh_token: refreshToken });
+    const user = usersColl.findOne({ id: decoded.id, refresh_token: refreshToken });
 
     if (!user) {
       return res.status(401).json({ error: "Invalid refresh token." });
     }
 
     const tokenPayload = {
-      id: user._id.toString(),
+      id: user.id,
       role: user.role,
-      organizationId: user.organization_id.toString(),
+      organizationId: user.organization_id,
     };
 
     const accessToken = jwt.sign(tokenPayload, BACKEND_SECRET, { expiresIn: ACCESS_TOKEN_EXPIRY });
@@ -169,7 +173,7 @@ router.post("/forgot-password", async (req, res) => {
 
     const db = await getControlDb();
     const usersColl = db.collection("users");
-    const user = await usersColl.findOne({ email: email.toLowerCase() });
+    const user = usersColl.findOne({ email: email.toLowerCase() });
 
     if (!user) {
       // Don't leak whether user exists or not
@@ -177,10 +181,10 @@ router.post("/forgot-password", async (req, res) => {
     }
 
     const resetToken = crypto.randomBytes(32).toString("hex");
-    const resetTokenExpiry = new Date(Date.now() + 3600000); // 1 hour
+    const resetTokenExpiry = new Date(Date.now() + 3600000).toISOString(); // 1 hour
 
-    await usersColl.updateOne(
-      { _id: user._id },
+    usersColl.updateOne(
+      { id: user.id },
       { $set: { reset_token: resetToken, reset_token_expiry: resetTokenExpiry } }
     );
 
@@ -213,23 +217,21 @@ router.post("/reset-password", async (req, res) => {
 
     const db = await getControlDb();
     const usersColl = db.collection("users");
-    
-    const user = await usersColl.findOne({ 
-      reset_token: token,
-      reset_token_expiry: { $gt: new Date() }
-    });
 
-    if (!user) {
+    const now = new Date().toISOString();
+    const user = usersColl.findOne({ reset_token: token });
+
+    if (!user || !user.reset_token_expiry || user.reset_token_expiry <= now) {
       return res.status(400).json({ error: "Invalid or expired reset token." });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    await usersColl.updateOne(
-      { _id: user._id },
-      { 
+    usersColl.updateOne(
+      { id: user.id },
+      {
         $set: { hashed_password: hashedPassword },
-        $unset: { reset_token: "", reset_token_expiry: "" }
+        $unset: { reset_token: "", reset_token_expiry: "" },
       }
     );
 
@@ -246,12 +248,12 @@ router.post("/logout", async (req, res) => {
     if (refreshToken) {
       const decoded = jwt.verify(refreshToken, REFRESH_SECRET) as any;
       const db = await getControlDb();
-      await db.collection("users").updateOne(
-        { _id: new ObjectId(decoded.id) },
+      db.collection("users").updateOne(
+        { id: decoded.id },
         { $unset: { refresh_token: "" } }
-      ).catch(() => {});
+      );
     }
-    
+
     res.clearCookie("refreshToken");
     res.json({ success: true, message: "Logged out." });
   } catch (error) {
@@ -261,7 +263,7 @@ router.post("/logout", async (req, res) => {
 });
 
 // Middleware for protected auth routes (using access token)
-const requireAuth = (req: any, res: any, next: any) => {
+export const requireAuth = (req: any, res: any, next: any) => {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith("Bearer ")) {
     return res.status(401).json({ error: "Unauthorized" });
@@ -284,8 +286,8 @@ router.put("/user", requireAuth, async (req: any, res: any) => {
     }
 
     const db = await getControlDb();
-    await db.collection("users").updateOne(
-      { _id: new ObjectId(req.user.id) },
+    db.collection("users").updateOne(
+      { id: req.user.id },
       { $set: { name: name.trim() } }
     );
 

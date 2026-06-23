@@ -1,25 +1,17 @@
-import { MongoClient, ObjectId } from "mongodb";
 import { getPgPool, getMongoClient as getTargetMongoClient } from "./pool-manager";
 import { decryptPassword } from "./crypto-helper";
-import { Parser } from "node-sql-parser";
+import { getControlDb, newId } from "./json-db";
 import { STATEMENT_TIMEOUT } from "./constants";
+import { Parser as SqlParser } from "node-sql-parser";
 
 // Define the maximum rows we store for a single query job to prevent infinite scans
 const MAX_JOB_ROWS_LIMIT = 50_000;
 const PAGE_SIZE = 500;
 
-let controlClient: MongoClient | null = null;
-
 /**
- * Retrieve control plane database connection.
+ * Re-export getControlDb so other modules can import it from here (backward-compatible).
  */
-export async function getControlDb() {
-  if (controlClient) return controlClient.db();
-  const uri = process.env.MONGODB_URI || process.env.DATABASE_URL || "mongodb://localhost:27017/bi_lite";
-  controlClient = new MongoClient(uri);
-  await controlClient.connect();
-  return controlClient.db();
-}
+export { getControlDb } from "./json-db";
 
 /**
  * Decrypt helper since backend needs to decode credentials before connecting.
@@ -44,12 +36,12 @@ export async function startQueryJob(jobId: string, data: JobData): Promise<void>
   const resultsColl = controlDb.collection("query_job_results");
 
   // Update status to processing
-  await jobsColl.updateOne({ _id: new ObjectId(jobId) }, { $set: { status: "processing", updatedAt: new Date() } });
+  jobsColl.updateOne({ id: jobId }, { $set: { status: "processing", updatedAt: new Date().toISOString() } });
 
   try {
     // 1. Fetch connection credentials from control plane
     const connColl = controlDb.collection("database_connections");
-    const connection = await connColl.findOne({ _id: new ObjectId(data.connectionId), organization_id: new ObjectId(data.organizationId) });
+    const connection = connColl.findOne({ id: data.connectionId, organization_id: data.organizationId });
 
     if (!connection) {
       throw new Error("Target database connection not found or unauthorized.");
@@ -80,7 +72,7 @@ export async function startQueryJob(jobId: string, data: JobData): Promise<void>
       try {
         // --- 4. AST Parsing Middleware ---
         try {
-          const parser = new Parser();
+          const parser = new SqlParser();
           const ast = parser.astify(data.query, { database: "PostgresQL" });
           const statements = Array.isArray(ast) ? ast : [ast];
 
@@ -140,12 +132,11 @@ export async function startQueryJob(jobId: string, data: JobData): Promise<void>
           rowsCount++;
 
           if (pageRows.length === PAGE_SIZE) {
-            // Write page to results collection
-            await resultsColl.insertOne({
-              jobId: new ObjectId(jobId),
+            resultsColl.insertOne({
+              jobId,
               pageNum,
               rows: pageRows,
-              createdAt: new Date(),
+              createdAt: new Date().toISOString(),
             });
             pageNum++;
             pageRows = [];
@@ -158,7 +149,7 @@ export async function startQueryJob(jobId: string, data: JobData): Promise<void>
         pgClient.release();
       }
     } else if (data.engine === "MONGODB") {
-      // MongoDBAggregation pipeline
+      // MongoDB Aggregation pipeline
       const decryptedUri = decrypt(connection.encrypted_uri);
       const client = await getTargetMongoClient({
         id: data.connectionId,
@@ -190,7 +181,6 @@ export async function startQueryJob(jobId: string, data: JobData): Promise<void>
         }
         columns = Array.from(columnSet);
 
-        // Convert ObjectId/Date fields to strings to avoid serialization issues
         for (const doc of docs) {
           if (rowsCount >= MAX_JOB_ROWS_LIMIT) break;
 
@@ -214,11 +204,11 @@ export async function startQueryJob(jobId: string, data: JobData): Promise<void>
           rowsCount++;
 
           if (pageRows.length === PAGE_SIZE) {
-            await resultsColl.insertOne({
-              jobId: new ObjectId(jobId),
+            resultsColl.insertOne({
+              jobId,
               pageNum,
               rows: pageRows,
-              createdAt: new Date(),
+              createdAt: new Date().toISOString(),
             });
             pageNum++;
             pageRows = [];
@@ -231,38 +221,38 @@ export async function startQueryJob(jobId: string, data: JobData): Promise<void>
 
     // Insert any remaining items in the last page
     if (pageRows.length > 0) {
-      await resultsColl.insertOne({
-        jobId: new ObjectId(jobId),
+      resultsColl.insertOne({
+        jobId,
         pageNum,
         rows: pageRows,
-        createdAt: new Date(),
+        createdAt: new Date().toISOString(),
       });
     }
 
     const durationMs = Date.now() - start;
 
     // Mark job as completed
-    await jobsColl.updateOne(
-      { _id: new ObjectId(jobId) },
+    jobsColl.updateOne(
+      { id: jobId },
       {
         $set: {
           status: "completed",
           rowCount: rowsCount,
           columns,
           durationMs,
-          updatedAt: new Date(),
+          updatedAt: new Date().toISOString(),
         },
       }
     );
   } catch (err: any) {
     console.error(`Job ${jobId} failed:`, err);
-    await jobsColl.updateOne(
-      { _id: new ObjectId(jobId) },
+    jobsColl.updateOne(
+      { id: jobId },
       {
         $set: {
           status: "failed",
           error: err.message || String(err),
-          updatedAt: new Date(),
+          updatedAt: new Date().toISOString(),
         },
       }
     );

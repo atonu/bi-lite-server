@@ -1,0 +1,224 @@
+[
+  {
+    "id": "7166016d-687f-4166-a8e1-74662cf9ff4d",
+    "organizationId": "2f0f0f05-9fce-4e12-99f2-c548e27e50ea",
+    "connectionId": "777c57ec-72a4-453a-b1b4-7cb4f04de57f",
+    "query": "{\"collection\":\"sales\",\"pipeline\":[{\"$group\":{\"_id\":{\"year\":{\"$substr\":[\"$date\",0,4]},\"month\":{\"$substr\":[\"$date\",5,2]}},\"totalSales\":{\"$sum\":\"$amount\"}}},{\"$sort\":{\"_id.year\":1,\"_id.month\":1}},{\"$limit\":12}]}",
+    "status": "pending",
+    "createdAt": "2026-06-22T09:22:33.947Z",
+    "updatedAt": "2026-06-22T09:22:33.947Z"
+  },
+  {
+    "id": "6d02b222-d0c2-4b00-afb0-91a97bbab065",
+    "organizationId": "2f0f0f05-9fce-4e12-99f2-c548e27e50ea",
+    "connectionId": "777c57ec-72a4-453a-b1b4-7cb4f04de57f",
+    "query": "{\"collection\":\"sales\",\"pipeline\":[{\"$match\":{\"date\":{\"$gte\":\"2026-01-01\",\"$lte\":\"2026-05-31\"}}},{\"$group\":{\"_id\":{\"$month\":{\"$dateFromString\":{\"dateString\":\"$date\"}}},\"totalSales\":{\"$sum\":\"$amount\"}}},{\"$sort\":{\"_id\":1}},{\"$limit\":500}]}",
+    "status": "pending",
+    "createdAt": "2026-06-22T09:23:40.047Z",
+    "updatedAt": "2026-06-22T09:23:40.047Z"
+  },
+  {
+    "id": "25fedaff-e39b-4fc5-90b5-4b49b56812df",
+    "organizationId": "2f0f0f05-9fce-4e12-99f2-c548e27e50ea",
+    "connectionId": "777c57ec-72a4-453a-b1b4-7cb4f04de57f",
+    "query": "{\"collection\":\"employees\",\"pipeline\":[{\"$limit\":5}]}",
+    "status": "pending",
+    "createdAt": "2026-06-22T15:54:49.797Z",
+    "updatedAt": "2026-06-22T15:54:49.797Z"
+  },
+  {
+    "id": "b2229fa5-63de-4ada-8aab-3a417d009f92",
+    "organizationId": "19e0d50f-da1d-42fc-9405-dcc6ceda0596",
+    "connectionId": "e01d34ff-a573-428c-a46b-791a504eca15",
+    "query": "{\"collection\":\"employees\",\"pipeline\":[{\"$project\":{\"name\":1}},{\"$limit\":5}]}",
+    "status": "pending",
+    "createdAt": "2026-06-22T16:22:16.183Z",
+    "updatedAt": "2026-06-22T16:22:16.184Z"
+  },
+  {
+    "id": "b8bca732-ae4c-4a34-b3e3-ff1f24655735",
+    "organizationId": "df7d34ec-633f-4378-8eca-be6a85b3aeb7",
+    "connectionId": "5af21c98-2179-4f30-b340-6ef85d176234",
+    "query": "{\"collection\":\"employees\",\"pipeline\":[{\"$limit\":5}]}",
+    "status": "completed",
+    "createdAt": "2026-06-22T16:49:45.251Z",
+    "updatedAt": "2026-06-22T16:49:46.902Z",
+    "rowCount": 5,
+    "columns": [
+      "_id",
+      "id",
+      "name",
+      "email",
+      "department",
+      "role",
+      "salary",
+      "bonus_amount",
+      "sale",
+      "revenue_generated",
+      "projects_completed",
+      "attendance",
+      "leave",
+      "overtime_hours",
+      "training_hours",
+      "performance_score",
+      "satisfaction_score",
+      "customer_rating",
+      "tenure_months",
+      "expenses_claimed",
+      "created_at"
+    ],
+    "durationMs": 1267
+  },
+  {
+    "id": "8099d287-a99a-428d-bd27-94d6dd5407fa",
+    "organizationId": "df7d34ec-633f-4378-8eca-be6a85b3aeb7",
+    "connectionId": "5af21c98-2179-4f30-b340-6ef85d176234",
+    "query": "{\"collection\":\"sales\",\"pipeline\":[{\"$match\":{\"date\":{\"$gte\":\"2026-01-01\",\"$lte\":\"2026-05-31\"}}},{\"$group\":{\"_id\":{\"$substr\":[\"$date\",0,7]},\"totalSales\":{\"$sum\":\"$amount\"}}},{\"$sort\":{\"_id\":1}},{\"$limit\":500}]}",
+    "status": "completed",
+    "createdAt": "2026-06-22T20:33:55.997Z",
+    "updatedAt": "2026-06-22T20:33:57.768Z",
+    "rowCount": 5,
+    "columns": [
+      "_id",
+      "totalSales"
+    ],
+    "durationMs": 1392
+  },
+  {
+    "id": "e3200094-dcba-4cdc-bd07-7312616bd3a1",
+    "organizationId": "df7d34ec-633f-4378-8eca-be6a85b3aeb7",
+    "connectionId": "5af21c98-2179-4f30-b340-6ef85d176234",
+    "query": "{\"collection\":\"employees\",\"pipeline\":[{\"$match\":{\"role\":{\"$in\":[\"Associate\",\"Senior Associate\"]}}},{\"$group\":{\"_id\":\"$name\",\"totalSales\":{\"$sum\":\"$revenue_generated\"}}},{\"$sort\":{\"totalSales\":-1}},{\"$limit\":500}]}",
+    "status": "completed",
+    "createdAt": "2026-06-22T20:35:16.627Z",
+    "updatedAt": "2026-06-22T20:35:16.768Z",
+    "rowCount": 40,
+    "columns": [
+      "_id",
+      "totalSales"
+    ],
+    "durationMs": 138
+  },
+  {
+    "id": "360a5b85-5f5b-416e-bdc4-dd1e96febd3d",
+    "organizationId": "df7d34ec-633f-4378-8eca-be6a85b3aeb7",
+    "connectionId": "5af21c98-2179-4f30-b340-6ef85d176234",
+    "query": "{\"collection\":\"employees\",\"pipeline\":[{\"$match\":{\"role\":{\"$in\":[\"Associate\",\"Senior Associate\"]}}},{\"$group\":{\"_id\":\"$name\",\"total_sales\":{\"$sum\":\"$revenue_generated\"}}},{\"$sort\":{\"total_sales\":-1}},{\"$limit\":500}]}",
+    "status": "completed",
+    "createdAt": "2026-06-22T20:35:35.279Z",
+    "updatedAt": "2026-06-22T20:35:35.435Z",
+    "rowCount": 40,
+    "columns": [
+      "_id",
+      "total_sales"
+    ],
+    "durationMs": 154
+  },
+  {
+    "id": "57242f58-4450-4998-8675-6930243d9bc8",
+    "organizationId": "df7d34ec-633f-4378-8eca-be6a85b3aeb7",
+    "connectionId": "5af21c98-2179-4f30-b340-6ef85d176234",
+    "query": "{\"collection\":\"sales\",\"pipeline\":[{\"$project\":{\"month\":{\"$substr\":[\"$date\",0,7]},\"amount\":1}},{\"$group\":{\"_id\":\"$month\",\"totalSales\":{\"$sum\":\"$amount\"}}},{\"$sort\":{\"_id\":1}},{\"$limit\":500}]}",
+    "status": "completed",
+    "createdAt": "2026-06-22T20:35:55.057Z",
+    "updatedAt": "2026-06-22T20:35:55.196Z",
+    "rowCount": 6,
+    "columns": [
+      "_id",
+      "totalSales"
+    ],
+    "durationMs": 137
+  },
+  {
+    "id": "0df6ec1e-dbf6-4a55-8826-baccf3a3d273",
+    "organizationId": "19e0d50f-da1d-42fc-9405-dcc6ceda0596",
+    "connectionId": "e01d34ff-a573-428c-a46b-791a504eca15",
+    "query": "{\"collection\":\"sales\",\"pipeline\":[{\"$match\":{\"date\":{\"$gte\":\"2026-01-01\",\"$lte\":\"2026-05-31\"}}},{\"$group\":{\"_id\":{\"$substr\":[\"$date\",0,7]},\"totalSales\":{\"$sum\":\"$amount\"}}},{\"$sort\":{\"_id\":1}},{\"$limit\":500}]}",
+    "status": "completed",
+    "createdAt": "2026-06-23T10:01:01.466Z",
+    "updatedAt": "2026-06-23T10:01:03.006Z",
+    "rowCount": 5,
+    "columns": [
+      "_id",
+      "totalSales"
+    ],
+    "durationMs": 1347
+  },
+  {
+    "id": "6437b91b-d924-42bc-aafd-3baded57fe7f",
+    "organizationId": "19e0d50f-da1d-42fc-9405-dcc6ceda0596",
+    "connectionId": "e01d34ff-a573-428c-a46b-791a504eca15",
+    "query": "{\"collection\":\"employees\",\"pipeline\":[{\"$match\":{\"role\":{\"$in\":[\"Associate\",\"Senior Associate\"]}}},{\"$group\":{\"_id\":\"$name\",\"totalSales\":{\"$sum\":\"$sale\"}}},{\"$sort\":{\"totalSales\":-1}},{\"$limit\":500}]}",
+    "status": "completed",
+    "createdAt": "2026-06-23T10:02:17.646Z",
+    "updatedAt": "2026-06-23T10:02:17.777Z",
+    "rowCount": 40,
+    "columns": [
+      "_id",
+      "totalSales"
+    ],
+    "durationMs": 128
+  },
+  {
+    "id": "aeadf0b8-a431-4e8e-afdf-84e7214936f3",
+    "organizationId": "2f0f0f05-9fce-4e12-99f2-c548e27e50ea",
+    "connectionId": "777c57ec-72a4-453a-b1b4-7cb4f04de57f",
+    "query": "{\"collection\":\"sales\",\"pipeline\":[{\"$match\":{\"date\":{\"$gte\":\"2026-01-01\",\"$lte\":\"2026-05-31\"}}},{\"$group\":{\"_id\":{\"$substr\":[\"$date\",0,7]},\"totalSales\":{\"$sum\":\"$amount\"}}},{\"$sort\":{\"_id\":1}},{\"$limit\":500}]}",
+    "status": "completed",
+    "createdAt": "2026-06-23T10:03:30.718Z",
+    "updatedAt": "2026-06-23T10:03:31.893Z",
+    "rowCount": 5,
+    "columns": [
+      "_id",
+      "totalSales"
+    ],
+    "durationMs": 1173
+  },
+  {
+    "id": "b5923302-b8d4-452f-913b-0c7637ec92c0",
+    "organizationId": "2f0f0f05-9fce-4e12-99f2-c548e27e50ea",
+    "connectionId": "777c57ec-72a4-453a-b1b4-7cb4f04de57f",
+    "query": "{\"collection\":\"sales\",\"pipeline\":[{\"$match\":{\"date\":{\"$gte\":\"2026-01-01\",\"$lt\":\"2027-01-01\"}}},{\"$group\":{\"_id\":{\"$substr\":[\"$date\",0,7]},\"totalSales\":{\"$sum\":\"$amount\"}}},{\"$sort\":{\"_id\":1}},{\"$limit\":500}]}",
+    "status": "completed",
+    "createdAt": "2026-06-23T10:09:42.417Z",
+    "updatedAt": "2026-06-23T10:09:42.540Z",
+    "rowCount": 6,
+    "columns": [
+      "_id",
+      "totalSales"
+    ],
+    "durationMs": 122
+  },
+  {
+    "id": "37b35a56-7070-4b8d-b338-5f803d828787",
+    "organizationId": "2f0f0f05-9fce-4e12-99f2-c548e27e50ea",
+    "connectionId": "777c57ec-72a4-453a-b1b4-7cb4f04de57f",
+    "query": "{\"collection\":\"employees\",\"pipeline\":[{\"$match\":{\"role\":{\"$in\":[\"Associate\",\"Senior Associate\"]}}},{\"$group\":{\"_id\":\"$name\",\"totalSales\":{\"$sum\":\"$sale\"}}},{\"$sort\":{\"totalSales\":-1}},{\"$limit\":20}]}",
+    "status": "completed",
+    "createdAt": "2026-06-23T10:10:27.828Z",
+    "updatedAt": "2026-06-23T10:10:27.954Z",
+    "rowCount": 20,
+    "columns": [
+      "_id",
+      "totalSales"
+    ],
+    "durationMs": 125
+  },
+  {
+    "id": "f0f9605c-4179-4ad3-a29a-d2b9889a8b12",
+    "organizationId": "2f0f0f05-9fce-4e12-99f2-c548e27e50ea",
+    "connectionId": "777c57ec-72a4-453a-b1b4-7cb4f04de57f",
+    "query": "{\"collection\":\"departments\",\"pipeline\":[{\"$lookup\":{\"from\":\"expenses\",\"localField\":\"id\",\"foreignField\":\"departmentId\",\"as\":\"expenses\"}},{\"$addFields\":{\"total_expenses\":{\"$sum\":\"$expenses.amount\"}}},{\"$project\":{\"_id\":0,\"id\":1,\"name\":1,\"budget\":1,\"total_expenses\":1}},{\"$limit\":500}]}",
+    "status": "completed",
+    "createdAt": "2026-06-23T12:05:27.457Z",
+    "updatedAt": "2026-06-23T12:05:29.456Z",
+    "rowCount": 10,
+    "columns": [
+      "id",
+      "name",
+      "budget",
+      "total_expenses"
+    ],
+    "durationMs": 1583
+  }
+]

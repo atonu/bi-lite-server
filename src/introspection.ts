@@ -1,7 +1,6 @@
-import { MongoClient, ObjectId } from "mongodb";
 import { getPgPool, getMongoClient as getTargetMongoClient } from "./pool-manager";
 import { decryptPassword } from "./crypto-helper";
-import { getControlDb } from "./query-job";
+import { getControlDb } from "./json-db";
 
 export interface ColumnMetadata {
   tableSchema: string;
@@ -26,9 +25,9 @@ export async function runIntrospection(
   const connColl = controlDb.collection("database_connections");
   const metaColl = controlDb.collection("schema_metadata");
 
-  const connection = await connColl.findOne({
-    _id: new ObjectId(connectionId),
-    organization_id: new ObjectId(organizationId),
+  const connection = connColl.findOne({
+    id: connectionId,
+    organization_id: organizationId,
   });
 
   if (!connection) {
@@ -37,7 +36,7 @@ export async function runIntrospection(
 
   try {
     // Clear existing metadata for this connection
-    await metaColl.deleteMany({ connection_id: new ObjectId(connectionId) });
+    metaColl.deleteMany({ connection_id: connectionId });
 
     let tablesCount = 0;
 
@@ -99,40 +98,21 @@ export async function runIntrospection(
             ORDER BY ordinal_position
           `, [tbl.table_schema, tbl.table_name]);
 
-          const docs = [];
-          for (const row of colsResult.rows) {
-            let sample_values: string[] | null = null;
-            if (["character varying", "varchar", "text", "character", "char", "enum"].includes(row.data_type.toLowerCase())) {
-              try {
-                const distResult = await client.query(`
-                  SELECT DISTINCT "${row.column_name}"
-                  FROM "${tbl.table_schema}"."${tbl.table_name}"
-                  WHERE "${row.column_name}" IS NOT NULL
-                  LIMIT 10
-                `);
-                sample_values = distResult.rows.map((r) => r[row.column_name]);
-              } catch (e) {
-                // ignore errors for distinct
-              }
-            }
-
-            docs.push({
-              connection_id: new ObjectId(connectionId),
-              table_schema: tbl.table_schema,
-              table_name: tbl.table_name,
-              column_name: row.column_name,
-              data_type: row.data_type,
-              is_nullable: row.is_nullable === "YES",
-              is_primary_key: pkSet.has(`${tbl.table_schema}.${tbl.table_name}.${row.column_name}`),
-              column_default: row.column_default,
-              ordinal_position: row.ordinal_position,
-              sample_values,
-              introspected_at: new Date(),
-            });
-          }
+          const docs = colsResult.rows.map((row) => ({
+            connection_id: connectionId,
+            table_schema: tbl.table_schema,
+            table_name: tbl.table_name,
+            column_name: row.column_name,
+            data_type: row.data_type,
+            is_nullable: row.is_nullable === "YES",
+            is_primary_key: pkSet.has(`${tbl.table_schema}.${tbl.table_name}.${row.column_name}`),
+            column_default: row.column_default,
+            ordinal_position: row.ordinal_position,
+            introspected_at: new Date().toISOString(),
+          }));
 
           if (docs.length > 0) {
-            await metaColl.insertMany(docs);
+            metaColl.insertMany(docs);
           }
         }
       } finally {
@@ -142,7 +122,7 @@ export async function runIntrospection(
       const decryptedUri = decryptPassword(connection.encrypted_uri);
       const client = await getTargetMongoClient({
         id: connectionId,
-        engine: "MONGODB",
+        engine: "MONGODB" as const,
         decryptedUri,
         sslEnabled: connection.ssl_enabled ?? false,
       });
@@ -195,7 +175,7 @@ export async function runIntrospection(
         const docs = [];
         for (const [path, bsonType] of fieldMap) {
           docs.push({
-            connection_id: new ObjectId(connectionId),
+            connection_id: connectionId,
             table_schema: connection.db_name || "default",
             table_name: collName,
             column_name: path,
@@ -204,13 +184,12 @@ export async function runIntrospection(
             is_primary_key: path === "_id",
             column_default: null,
             ordinal_position: ordinal++,
-            sample_values: distinctValues.has(path) ? Array.from(distinctValues.get(path)!) : null,
-            introspected_at: new Date(),
+            introspected_at: new Date().toISOString(),
           });
         }
 
         if (docs.length > 0) {
-          await metaColl.insertMany(docs);
+          metaColl.insertMany(docs);
         }
       }
     } else {
@@ -218,17 +197,17 @@ export async function runIntrospection(
     }
 
     // Success: mark connection state as CONNECTED
-    await connColl.updateOne(
-      { _id: new ObjectId(connectionId) },
-      { $set: { status: "CONNECTED", lastTestedAt: new Date() } }
+    connColl.updateOne(
+      { id: connectionId },
+      { $set: { status: "CONNECTED", lastTestedAt: new Date().toISOString() } }
     );
 
     return { success: true, tablesCount };
   } catch (err: any) {
     console.error("Introspection failed:", err);
-    await connColl.updateOne(
-      { _id: new ObjectId(connectionId) },
-      { $set: { status: "FAILED", lastTestedAt: new Date() } }
+    connColl.updateOne(
+      { id: connectionId },
+      { $set: { status: "FAILED", lastTestedAt: new Date().toISOString() } }
     );
     return { success: false, error: err.message || String(err) };
   }

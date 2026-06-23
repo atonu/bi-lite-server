@@ -3,14 +3,13 @@ import cors from "cors";
 import dotenv from "dotenv";
 import path from "path";
 import jwt from "jsonwebtoken";
-import { ObjectId } from "mongodb";
 import swaggerUi from "swagger-ui-express";
 
 // Load environment variables (look in server root first, then fall back to parent monorepo folder)
 dotenv.config({ path: path.join(__dirname, "../.env") });
 dotenv.config({ path: path.join(__dirname, "../../.env") });
 
-import { getControlDb, startQueryJob } from "./query-job";
+import { getControlDb, newId } from "./json-db";
 import { runIntrospection, introspectTransientSchema } from "./introspection";
 import { getPgPool, getMongoClient } from "./pool-manager";
 import { swaggerDocument } from "./swagger-spec";
@@ -19,13 +18,16 @@ import cookieParser from "cookie-parser";
 import authRouter from "./routes/auth";
 import chatRouter from "./routes/chat";
 import connectionsRouter from "./routes/connections";
+import onboardingRouter from "./routes/onboarding";
+import templatesRouter from "./routes/templates";
+import uploadRouter from "./routes/upload";
 
 const app = express();
 const PORT = process.env.BACKEND_PORT || 3002;
 const BACKEND_SECRET = process.env.BACKEND_SECRET || "bi-lite-backend-secret-key-super-secure-87654321";
 
 app.use(cors({ origin: process.env.FRONTEND_URL || "http://localhost:3000", credentials: true }));
-app.use(express.json());
+app.use(express.json({ limit: "50mb" }));
 app.use(cookieParser());
 
 // Serve Swagger UI API documentation
@@ -42,18 +44,9 @@ app.get("/api-docs", (req, res) => {
   <link rel="stylesheet" type="text/css" href="https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/4.18.3/swagger-ui.css" >
   <link rel="icon" type="image/png" href="https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/4.18.3/favicon-32x32.png" sizes="32x32" />
   <style>
-    html {
-      box-sizing: border-box;
-      overflow: -moz-scrollbars-vertical;
-      overflow-y: scroll;
-    }
-    *, *:before, *:after {
-      box-sizing: inherit;
-    }
-    body {
-      margin: 0;
-      background: #fafafa;
-    }
+    html { box-sizing: border-box; overflow: -moz-scrollbars-vertical; overflow-y: scroll; }
+    *, *:before, *:after { box-sizing: inherit; }
+    body { margin: 0; background: #fafafa; }
   </style>
 </head>
 <body>
@@ -66,13 +59,8 @@ app.get("/api-docs", (req, res) => {
         url: "/api-docs/json",
         dom_id: '#swagger-ui',
         deepLinking: true,
-        presets: [
-          SwaggerUIBundle.presets.apis,
-          SwaggerUIStandalonePreset
-        ],
-        plugins: [
-          SwaggerUIBundle.plugins.DownloadUrl
-        ],
+        presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
+        plugins: [SwaggerUIBundle.plugins.DownloadUrl],
         layout: "StandaloneLayout"
       });
       window.ui = ui;
@@ -107,14 +95,14 @@ const authMiddleware = (req: any, res: any, next: any) => {
 app.use("/api/auth", authRouter);
 app.use("/api/chat", authMiddleware, chatRouter);
 app.use("/api/connections", authMiddleware, connectionsRouter);
+app.use("/api/onboard", onboardingRouter);           // Public — no auth middleware
+app.use("/api/templates", authMiddleware, templatesRouter);
+app.use("/api/upload", authMiddleware, uploadRouter);
 
 // ---------------------------------------------------------------------------
 // Routes
 // ---------------------------------------------------------------------------
 
-/**
- * Health check endpoint
- */
 app.get("/health", (req, res) => {
   res.json({ status: "healthy", timestamp: new Date() });
 });
@@ -189,12 +177,17 @@ app.post("/api/connection/test", authMiddleware, async (req, res) => {
  * Run schema introspection on dynamic setup credentials (transient)
  */
 app.post("/api/connection/introspect", authMiddleware, async (req, res) => {
-  const creds = req.body;
-  if (creds.connectionUri === "mongodb+srv://********************************************************") {
-    creds.connectionUri = process.env.SAMPLE_DATASET_URI || "";
+  try {
+    const creds = req.body;
+    if (creds.connectionUri === "mongodb+srv://********************************************************") {
+      creds.connectionUri = process.env.SAMPLE_DATASET_URI || "";
+    }
+    const result = await introspectTransientSchema(creds);
+    return res.json(result);
+  } catch (err: any) {
+    console.error("[INTROSPECT] Error:", err.message || err);
+    return res.status(500).json({ success: false, error: err.message || String(err) });
   }
-  const result = await introspectTransientSchema(creds);
-  return res.json(result);
 });
 
 /**
@@ -227,36 +220,33 @@ app.post("/api/query/execute", authMiddleware, async (req, res) => {
     const controlDb = await getControlDb();
     const connColl = controlDb.collection("database_connections");
 
-    // Verify database connection belongs to the organization
-    const conn = await connColl.findOne({
-      _id: new ObjectId(connectionId),
-      organization_id: new ObjectId(organizationId),
-    });
+    const conn = connColl.findOne({ id: connectionId, organization_id: organizationId });
 
     if (!conn) {
       return res.status(404).json({ success: false, error: "Database connection not found or unauthorized." });
     }
 
     const jobsColl = controlDb.collection("query_jobs");
+    const jobId = newId();
 
-    const job = await jobsColl.insertOne({
+    jobsColl.insertOne({
+      id: jobId,
       organizationId,
       connectionId,
       query,
       status: "pending",
-      createdAt: new Date(),
-      updatedAt: new Date(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     });
 
-    const jobId = job.insertedId.toString();
-
     // Start background worker, do not await it
+    const { startQueryJob } = require("./query-job");
     startQueryJob(jobId, {
       connectionId,
       engine: conn.engine,
       query,
       organizationId,
-    }).catch((err) => {
+    }).catch((err: any) => {
       console.error(`Background worker failed for job ${jobId}:`, err);
     });
 
@@ -276,10 +266,7 @@ app.get("/api/query/status/:jobId", authMiddleware, async (req, res) => {
 
   try {
     const controlDb = await getControlDb();
-    const job = await controlDb.collection("query_jobs").findOne({
-      _id: new ObjectId(jobId),
-      organizationId,
-    });
+    const job = controlDb.collection("query_jobs").findOne({ id: jobId, organizationId });
 
     if (!job) {
       return res.status(404).json({ success: false, error: "Query job not found." });
@@ -294,6 +281,7 @@ app.get("/api/query/status/:jobId", authMiddleware, async (req, res) => {
       error: job.error || null,
     });
   } catch (err: any) {
+    console.error(`[QUERY /status/${req.params.jobId}] Error:`, err.message || err);
     return res.status(500).json({ success: false, error: err.message || String(err) });
   }
 });
@@ -305,14 +293,11 @@ app.get("/api/query/results/:jobId", authMiddleware, async (req, res) => {
   const { jobId } = req.params;
   const page = parseInt(req.query.page as string || "1", 10);
   const organizationId = (req as any).user.organizationId;
-  const pageSize = 500; // Keep in sync with query-job.ts
+  const pageSize = 500;
 
   try {
     const controlDb = await getControlDb();
-    const job = await controlDb.collection("query_jobs").findOne({
-      _id: new ObjectId(jobId),
-      organizationId,
-    });
+    const job = controlDb.collection("query_jobs").findOne({ id: jobId, organizationId });
 
     if (!job) {
       return res.status(404).json({ success: false, error: "Query job not found." });
@@ -325,10 +310,7 @@ app.get("/api/query/results/:jobId", authMiddleware, async (req, res) => {
       });
     }
 
-    const resultDoc = await controlDb.collection("query_job_results").findOne({
-      jobId: new ObjectId(jobId),
-      pageNum: page,
-    });
+    const resultDoc = controlDb.collection("query_job_results").findOne({ jobId, pageNum: page });
 
     const totalPages = Math.ceil((job.rowCount || 0) / pageSize);
 
@@ -340,6 +322,7 @@ app.get("/api/query/results/:jobId", authMiddleware, async (req, res) => {
       rowCount: job.rowCount || 0,
     });
   } catch (err: any) {
+    console.error(`[QUERY /results/${req.params.jobId}] Error:`, err.message || err);
     return res.status(500).json({ success: false, error: err.message || String(err) });
   }
 });

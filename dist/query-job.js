@@ -1,26 +1,20 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getControlDb = getControlDb;
+exports.getControlDb = void 0;
 exports.startQueryJob = startQueryJob;
-const mongodb_1 = require("mongodb");
 const pool_manager_1 = require("./pool-manager");
 const crypto_helper_1 = require("./crypto-helper");
+const json_db_1 = require("./json-db");
+const constants_1 = require("./constants");
 const node_sql_parser_1 = require("node-sql-parser");
 // Define the maximum rows we store for a single query job to prevent infinite scans
 const MAX_JOB_ROWS_LIMIT = 50_000;
 const PAGE_SIZE = 500;
-let controlClient = null;
 /**
- * Retrieve control plane database connection.
+ * Re-export getControlDb so other modules can import it from here (backward-compatible).
  */
-async function getControlDb() {
-    if (controlClient)
-        return controlClient.db();
-    const uri = process.env.MONGODB_URI || process.env.DATABASE_URL || "mongodb://localhost:27017/bi_lite";
-    controlClient = new mongodb_1.MongoClient(uri);
-    await controlClient.connect();
-    return controlClient.db();
-}
+var json_db_2 = require("./json-db");
+Object.defineProperty(exports, "getControlDb", { enumerable: true, get: function () { return json_db_2.getControlDb; } });
 /**
  * Decrypt helper since backend needs to decode credentials before connecting.
  */
@@ -31,15 +25,15 @@ function decrypt(cipherText) {
  * Starts a query execution job in the background.
  */
 async function startQueryJob(jobId, data) {
-    const controlDb = await getControlDb();
+    const controlDb = await (0, json_db_1.getControlDb)();
     const jobsColl = controlDb.collection("query_jobs");
     const resultsColl = controlDb.collection("query_job_results");
     // Update status to processing
-    await jobsColl.updateOne({ _id: new mongodb_1.ObjectId(jobId) }, { $set: { status: "processing", updatedAt: new Date() } });
+    jobsColl.updateOne({ id: jobId }, { $set: { status: "processing", updatedAt: new Date().toISOString() } });
     try {
         // 1. Fetch connection credentials from control plane
         const connColl = controlDb.collection("database_connections");
-        const connection = await connColl.findOne({ _id: new mongodb_1.ObjectId(data.connectionId), organization_id: new mongodb_1.ObjectId(data.organizationId) });
+        const connection = connColl.findOne({ id: data.connectionId, organization_id: data.organizationId });
         if (!connection) {
             throw new Error("Target database connection not found or unauthorized.");
         }
@@ -87,7 +81,7 @@ async function startQueryJob(jobId, data) {
                     // so we fallback to read-only transaction protection.
                 }
                 // --- 5. Hard statement_timeout ---
-                await pgClient.query("SET statement_timeout = '10s'");
+                await pgClient.query(`SET statement_timeout = '${constants_1.STATEMENT_TIMEOUT}'`);
                 // Enforce read-only transaction
                 await pgClient.query("BEGIN READ ONLY");
                 // --- 6. Pre-flight EXPLAIN checks ---
@@ -121,12 +115,11 @@ async function startQueryJob(jobId, data) {
                     pageRows.push(row);
                     rowsCount++;
                     if (pageRows.length === PAGE_SIZE) {
-                        // Write page to results collection
-                        await resultsColl.insertOne({
-                            jobId: new mongodb_1.ObjectId(jobId),
+                        resultsColl.insertOne({
+                            jobId,
                             pageNum,
                             rows: pageRows,
-                            createdAt: new Date(),
+                            createdAt: new Date().toISOString(),
                         });
                         pageNum++;
                         pageRows = [];
@@ -142,7 +135,7 @@ async function startQueryJob(jobId, data) {
             }
         }
         else if (data.engine === "MONGODB") {
-            // MongoDBAggregation pipeline
+            // MongoDB Aggregation pipeline
             const decryptedUri = decrypt(connection.encrypted_uri);
             const client = await (0, pool_manager_1.getMongoClient)({
                 id: data.connectionId,
@@ -170,7 +163,6 @@ async function startQueryJob(jobId, data) {
                     }
                 }
                 columns = Array.from(columnSet);
-                // Convert ObjectId/Date fields to strings to avoid serialization issues
                 for (const doc of docs) {
                     if (rowsCount >= MAX_JOB_ROWS_LIMIT)
                         break;
@@ -196,11 +188,11 @@ async function startQueryJob(jobId, data) {
                     pageRows.push(row);
                     rowsCount++;
                     if (pageRows.length === PAGE_SIZE) {
-                        await resultsColl.insertOne({
-                            jobId: new mongodb_1.ObjectId(jobId),
+                        resultsColl.insertOne({
+                            jobId,
                             pageNum,
                             rows: pageRows,
-                            createdAt: new Date(),
+                            createdAt: new Date().toISOString(),
                         });
                         pageNum++;
                         pageRows = [];
@@ -213,32 +205,32 @@ async function startQueryJob(jobId, data) {
         }
         // Insert any remaining items in the last page
         if (pageRows.length > 0) {
-            await resultsColl.insertOne({
-                jobId: new mongodb_1.ObjectId(jobId),
+            resultsColl.insertOne({
+                jobId,
                 pageNum,
                 rows: pageRows,
-                createdAt: new Date(),
+                createdAt: new Date().toISOString(),
             });
         }
         const durationMs = Date.now() - start;
         // Mark job as completed
-        await jobsColl.updateOne({ _id: new mongodb_1.ObjectId(jobId) }, {
+        jobsColl.updateOne({ id: jobId }, {
             $set: {
                 status: "completed",
                 rowCount: rowsCount,
                 columns,
                 durationMs,
-                updatedAt: new Date(),
+                updatedAt: new Date().toISOString(),
             },
         });
     }
     catch (err) {
         console.error(`Job ${jobId} failed:`, err);
-        await jobsColl.updateOne({ _id: new mongodb_1.ObjectId(jobId) }, {
+        jobsColl.updateOne({ id: jobId }, {
             $set: {
                 status: "failed",
                 error: err.message || String(err),
-                updatedAt: new Date(),
+                updatedAt: new Date().toISOString(),
             },
         });
     }

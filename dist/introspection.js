@@ -2,27 +2,26 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.runIntrospection = runIntrospection;
 exports.introspectTransientSchema = introspectTransientSchema;
-const mongodb_1 = require("mongodb");
 const pool_manager_1 = require("./pool-manager");
 const crypto_helper_1 = require("./crypto-helper");
-const query_job_1 = require("./query-job");
+const json_db_1 = require("./json-db");
 /**
  * Runs incremental database schema introspection and writes results straight to the control-plane MongoDB.
  */
 async function runIntrospection(connectionId, organizationId) {
-    const controlDb = await (0, query_job_1.getControlDb)();
+    const controlDb = await (0, json_db_1.getControlDb)();
     const connColl = controlDb.collection("database_connections");
     const metaColl = controlDb.collection("schema_metadata");
-    const connection = await connColl.findOne({
-        _id: new mongodb_1.ObjectId(connectionId),
-        organization_id: new mongodb_1.ObjectId(organizationId),
+    const connection = connColl.findOne({
+        id: connectionId,
+        organization_id: organizationId,
     });
     if (!connection) {
         return { success: false, error: "Connection not found or unauthorized." };
     }
     try {
         // Clear existing metadata for this connection
-        await metaColl.deleteMany({ connection_id: new mongodb_1.ObjectId(connectionId) });
+        metaColl.deleteMany({ connection_id: connectionId });
         let tablesCount = 0;
         if (connection.engine === "POSTGRESQL") {
             const decryptedPassword = (0, crypto_helper_1.decryptPassword)(connection.encrypted_password);
@@ -64,39 +63,20 @@ async function runIntrospection(connectionId, organizationId) {
             WHERE table_schema = $1 AND table_name = $2
             ORDER BY ordinal_position
           `, [tbl.table_schema, tbl.table_name]);
-                    const docs = [];
-                    for (const row of colsResult.rows) {
-                        let sample_values = null;
-                        if (["character varying", "varchar", "text", "character", "char", "enum"].includes(row.data_type.toLowerCase())) {
-                            try {
-                                const distResult = await client.query(`
-                  SELECT DISTINCT "${row.column_name}"
-                  FROM "${tbl.table_schema}"."${tbl.table_name}"
-                  WHERE "${row.column_name}" IS NOT NULL
-                  LIMIT 10
-                `);
-                                sample_values = distResult.rows.map((r) => r[row.column_name]);
-                            }
-                            catch (e) {
-                                // ignore errors for distinct
-                            }
-                        }
-                        docs.push({
-                            connection_id: new mongodb_1.ObjectId(connectionId),
-                            table_schema: tbl.table_schema,
-                            table_name: tbl.table_name,
-                            column_name: row.column_name,
-                            data_type: row.data_type,
-                            is_nullable: row.is_nullable === "YES",
-                            is_primary_key: pkSet.has(`${tbl.table_schema}.${tbl.table_name}.${row.column_name}`),
-                            column_default: row.column_default,
-                            ordinal_position: row.ordinal_position,
-                            sample_values,
-                            introspected_at: new Date(),
-                        });
-                    }
+                    const docs = colsResult.rows.map((row) => ({
+                        connection_id: connectionId,
+                        table_schema: tbl.table_schema,
+                        table_name: tbl.table_name,
+                        column_name: row.column_name,
+                        data_type: row.data_type,
+                        is_nullable: row.is_nullable === "YES",
+                        is_primary_key: pkSet.has(`${tbl.table_schema}.${tbl.table_name}.${row.column_name}`),
+                        column_default: row.column_default,
+                        ordinal_position: row.ordinal_position,
+                        introspected_at: new Date().toISOString(),
+                    }));
                     if (docs.length > 0) {
-                        await metaColl.insertMany(docs);
+                        metaColl.insertMany(docs);
                     }
                 }
             }
@@ -154,7 +134,7 @@ async function runIntrospection(connectionId, organizationId) {
                 const docs = [];
                 for (const [path, bsonType] of fieldMap) {
                     docs.push({
-                        connection_id: new mongodb_1.ObjectId(connectionId),
+                        connection_id: connectionId,
                         table_schema: connection.db_name || "default",
                         table_name: collName,
                         column_name: path,
@@ -163,12 +143,11 @@ async function runIntrospection(connectionId, organizationId) {
                         is_primary_key: path === "_id",
                         column_default: null,
                         ordinal_position: ordinal++,
-                        sample_values: distinctValues.has(path) ? Array.from(distinctValues.get(path)) : null,
-                        introspected_at: new Date(),
+                        introspected_at: new Date().toISOString(),
                     });
                 }
                 if (docs.length > 0) {
-                    await metaColl.insertMany(docs);
+                    metaColl.insertMany(docs);
                 }
             }
         }
@@ -176,12 +155,12 @@ async function runIntrospection(connectionId, organizationId) {
             return { success: false, error: `Engine ${connection.engine} not supported.` };
         }
         // Success: mark connection state as CONNECTED
-        await connColl.updateOne({ _id: new mongodb_1.ObjectId(connectionId) }, { $set: { status: "CONNECTED", lastTestedAt: new Date() } });
+        connColl.updateOne({ id: connectionId }, { $set: { status: "CONNECTED", lastTestedAt: new Date().toISOString() } });
         return { success: true, tablesCount };
     }
     catch (err) {
         console.error("Introspection failed:", err);
-        await connColl.updateOne({ _id: new mongodb_1.ObjectId(connectionId) }, { $set: { status: "FAILED", lastTestedAt: new Date() } });
+        connColl.updateOne({ id: connectionId }, { $set: { status: "FAILED", lastTestedAt: new Date().toISOString() } });
         return { success: false, error: err.message || String(err) };
     }
 }

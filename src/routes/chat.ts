@@ -1,11 +1,71 @@
 import { Router, Response } from "express";
-import { ObjectId } from "mongodb";
-import { generateObject, generateText } from "ai";
-import { deepseek } from "@ai-sdk/deepseek";
+import { generateText } from "ai";
+import { createOpenAI } from "@ai-sdk/openai";
 import * as z from "zod";
-import { getControlDb } from "../query-job";
-
+import { getControlDb, newId } from "../json-db";
 const router = Router();
+
+// ---------------------------------------------------------------------------
+// OpenRouter client
+// ---------------------------------------------------------------------------
+
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || "";
+
+if (!OPENROUTER_API_KEY) {
+  console.warn("[CHAT] WARNING: OPENROUTER_API_KEY is not set. AI features will fail.");
+}
+
+const openrouter = createOpenAI({
+  baseURL: "https://openrouter.ai/api/v1",
+  apiKey: OPENROUTER_API_KEY,
+  headers: {
+    "HTTP-Referer": process.env.FRONTEND_URL || "http://localhost:3000",
+    "X-Title": "BI-Lite",
+  },
+});
+
+const DEFAULT_MODEL = "deepseek/deepseek-chat-v3-0324";
+
+// ---------------------------------------------------------------------------
+// Error extraction helper — digs through nested cause chains
+// ---------------------------------------------------------------------------
+
+function extractErrorMessage(err: any): string {
+  // AI SDK errors often wrap the real error in a cause chain
+  let message = err?.message || String(err);
+  let cause = err?.cause;
+  const messages: string[] = [message];
+
+  // Walk the cause chain up to 5 levels deep
+  let depth = 0;
+  while (cause && depth < 5) {
+    const causeMsg = cause?.message || String(cause);
+    if (causeMsg && !messages.includes(causeMsg)) {
+      messages.push(causeMsg);
+    }
+    cause = cause?.cause;
+    depth++;
+  }
+
+  // Check for response body in AI SDK errors
+  if (err?.responseBody) {
+    try {
+      const body = typeof err.responseBody === 'string' ? JSON.parse(err.responseBody) : err.responseBody;
+      if (body?.error?.message) {
+        messages.push(body.error.message);
+      }
+    } catch {}
+  }
+
+  // Check for data property (some AI SDK errors have this)
+  if (err?.data?.error) {
+    const dataErr = typeof err.data.error === 'string' ? err.data.error : err.data.error?.message;
+    if (dataErr) messages.push(dataErr);
+  }
+
+  // Return the most informative message
+  return messages.filter(Boolean).join(' | ');
+}
 
 // ---------------------------------------------------------------------------
 // AI Response Schemas & Types
@@ -191,12 +251,11 @@ EXAMPLE — "show me 5 employees":
 
 /**
  * GET /api/chat/sessions
- * List chat sessions.
  */
 router.get("/sessions", async (req: any, res: Response) => {
   try {
     const organizationId = req.user.organizationId;
-    const userId = req.user.userId;
+    const userId = req.user.userId || req.user.id;
 
     if (!organizationId || !userId) {
       return res.status(400).json({ error: "Missing authorization context." });
@@ -204,67 +263,33 @@ router.get("/sessions", async (req: any, res: Response) => {
 
     const controlDb = await getControlDb();
     const chatSessionsColl = controlDb.collection("chat_sessions");
+    const chatMessagesColl = controlDb.collection("chat_messages");
+    const connColl = controlDb.collection("database_connections");
 
-    const sessions = await chatSessionsColl
-      .aggregate([
-        {
-          $match: {
-            organization_id: new ObjectId(organizationId),
-            user_id: new ObjectId(userId),
-          },
-        },
-        {
-          $lookup: {
-            from: "database_connections",
-            localField: "connection_id",
-            foreignField: "_id",
-            as: "connection",
-          },
-        },
-        {
-          $lookup: {
-            from: "chat_messages",
-            localField: "_id",
-            foreignField: "session_id",
-            as: "messages",
-          },
-        },
-        {
-          $project: {
-            _id: 1,
-            title: 1,
-            connection_id: 1,
-            connection_alias: 1,
-            connection: { $arrayElemAt: ["$connection", 0] },
-            messageCount: { $size: "$messages" },
-            updated_at: 1,
-            created_at: 1,
-            firstMessage: { $arrayElemAt: ["$messages", 0] },
-          },
-        },
-        { $sort: { updated_at: -1 } },
-        { $limit: 50 },
-      ])
-      .toArray();
+    const sessions = chatSessionsColl.findMany(
+      { organization_id: organizationId, user_id: userId },
+      { sort: { updated_at: -1 }, limit: 50 }
+    );
 
     const formatted = sessions.map((s) => {
       let title = s.title;
-      if (title === "New Chat" && s.firstMessage) {
-        const firstMsgContent = s.firstMessage.content;
+      const messages = chatMessagesColl.findMany({ session_id: s.id }, { sort: { created_at: 1 } });
+      if (title === "New Chat" && messages.length > 0) {
+        const firstMsgContent = messages[0].content;
         if (firstMsgContent) {
           title = firstMsgContent.slice(0, 20).trim() + (firstMsgContent.length > 20 ? "..." : "");
-          chatSessionsColl.updateOne({ _id: s._id }, { $set: { title } }).catch(() => {});
+          chatSessionsColl.updateOne({ id: s.id }, { $set: { title } });
         }
       }
-
+      const conn = s.connection_id ? connColl.findOne({ id: s.connection_id }) : null;
       return {
-        id: s._id.toString(),
+        id: s.id,
         title,
-        connectionId: s.connection_id ? s.connection_id.toString() : null,
-        connectionAlias: s.connection_alias || (s.connection ? s.connection.alias : "Deleted DB"),
+        connectionId: s.connection_id || null,
+        connectionAlias: s.connection_alias || (conn ? conn.alias : "Deleted DB"),
         updatedAt: s.updated_at,
         createdAt: s.created_at,
-        messageCount: s.messageCount,
+        messageCount: messages.length,
       };
     });
 
@@ -276,12 +301,11 @@ router.get("/sessions", async (req: any, res: Response) => {
 
 /**
  * GET /api/chat/sessions/search
- * Search chat sessions.
  */
 router.get("/sessions/search", async (req: any, res: Response) => {
   try {
     const organizationId = req.user.organizationId;
-    const userId = req.user.userId;
+    const userId = req.user.userId || req.user.id;
     const query = (req.query.query as string) || "";
 
     if (!organizationId || !userId) {
@@ -290,68 +314,35 @@ router.get("/sessions/search", async (req: any, res: Response) => {
 
     const controlDb = await getControlDb();
     const chatSessionsColl = controlDb.collection("chat_sessions");
+    const chatMessagesColl = controlDb.collection("chat_messages");
 
-    const sessions = await chatSessionsColl
-      .aggregate([
-        {
-          $match: {
-            organization_id: new ObjectId(organizationId),
-            user_id: new ObjectId(userId),
-            title: { $regex: query, $options: "i" },
-          },
-        },
-        {
-          $lookup: {
-            from: "database_connections",
-            localField: "connection_id",
-            foreignField: "_id",
-            as: "connection",
-          },
-        },
-        {
-          $lookup: {
-            from: "chat_messages",
-            localField: "_id",
-            foreignField: "session_id",
-            as: "messages",
-          },
-        },
-        {
-          $project: {
-            _id: 1,
-            title: 1,
-            connection_id: 1,
-            connection_alias: 1,
-            connection: { $arrayElemAt: ["$connection", 0] },
-            messageCount: { $size: "$messages" },
-            updated_at: 1,
-            created_at: 1,
-            firstMessage: { $arrayElemAt: ["$messages", 0] },
-          },
-        },
-        { $sort: { updated_at: -1 } },
-        { $limit: 20 },
-      ])
-      .toArray();
+    const sessions = chatSessionsColl.findMany(
+      {
+        organization_id: organizationId,
+        user_id: userId,
+        title: { $regex: query, $options: "i" },
+      },
+      { sort: { updated_at: -1 }, limit: 20 }
+    );
 
     const formatted = sessions.map((s) => {
       let title = s.title;
-      if (title === "New Chat" && s.firstMessage) {
-        const firstMsgContent = s.firstMessage.content;
+      const messages = chatMessagesColl.findMany({ session_id: s.id });
+      if (title === "New Chat" && messages.length > 0) {
+        const firstMsgContent = messages[0].content;
         if (firstMsgContent) {
           title = firstMsgContent.slice(0, 20).trim() + (firstMsgContent.length > 20 ? "..." : "");
-          chatSessionsColl.updateOne({ _id: s._id }, { $set: { title } }).catch(() => {});
+          chatSessionsColl.updateOne({ id: s.id }, { $set: { title } });
         }
       }
-
       return {
-        id: s._id.toString(),
+        id: s.id,
         title,
-        connectionId: s.connection_id ? s.connection_id.toString() : null,
-        connectionAlias: s.connection_alias || (s.connection ? s.connection.alias : "Deleted DB"),
+        connectionId: s.connection_id || null,
+        connectionAlias: s.connection_alias || "Deleted DB",
         updatedAt: s.updated_at,
         createdAt: s.created_at,
-        messageCount: s.messageCount,
+        messageCount: messages.length,
       };
     });
 
@@ -363,12 +354,11 @@ router.get("/sessions/search", async (req: any, res: Response) => {
 
 /**
  * POST /api/chat/sessions
- * Create a new chat session.
  */
 router.post("/sessions", async (req: any, res: Response) => {
   try {
     const organizationId = req.user.organizationId;
-    const userId = req.user.userId;
+    const userId = req.user.userId || req.user.id;
     const { connectionId, connectionAlias, title = "New Chat" } = req.body;
 
     if (!organizationId || !userId || !connectionId || !connectionAlias) {
@@ -379,29 +369,25 @@ router.post("/sessions", async (req: any, res: Response) => {
     const connColl = controlDb.collection("database_connections");
     const chatSessionsColl = controlDb.collection("chat_sessions");
 
-    // Verify database connection ownership
-    const conn = await connColl.findOne({
-      _id: new ObjectId(connectionId),
-      organization_id: new ObjectId(organizationId),
-    });
+    const conn = connColl.findOne({ id: connectionId, organization_id: organizationId });
 
     if (!conn) {
       return res.status(404).json({ success: false, error: "Database connection not found." });
     }
 
-    const sessionId = new ObjectId();
-    await chatSessionsColl.insertOne({
-      _id: sessionId,
+    const sessionId = newId();
+    chatSessionsColl.insertOne({
+      id: sessionId,
       title,
-      connection_id: new ObjectId(connectionId),
+      connection_id: connectionId,
       connection_alias: connectionAlias,
-      organization_id: new ObjectId(organizationId),
-      user_id: new ObjectId(userId),
-      created_at: new Date(),
-      updated_at: new Date(),
+      organization_id: organizationId,
+      user_id: userId,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     });
 
-    return res.json({ success: true, sessionId: sessionId.toString() });
+    return res.json({ success: true, sessionId });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message || String(err) });
   }
@@ -409,12 +395,11 @@ router.post("/sessions", async (req: any, res: Response) => {
 
 /**
  * PATCH /api/chat/sessions/:id
- * Update a session title.
  */
 router.patch("/sessions/:id", async (req: any, res: Response) => {
   try {
     const organizationId = req.user.organizationId;
-    const userId = req.user.userId;
+    const userId = req.user.userId || req.user.id;
     const { id: sessionId } = req.params;
     const { title } = req.body;
 
@@ -425,20 +410,17 @@ router.patch("/sessions/:id", async (req: any, res: Response) => {
     const controlDb = await getControlDb();
     const chatSessionsColl = controlDb.collection("chat_sessions");
 
-    const existing = await chatSessionsColl.findOne({
-      _id: new ObjectId(sessionId),
-      organization_id: new ObjectId(organizationId),
-      user_id: new ObjectId(userId),
+    const existing = chatSessionsColl.findOne({
+      id: sessionId,
+      organization_id: organizationId,
+      user_id: userId,
     });
 
     if (!existing) {
       return res.status(404).json({ success: false, error: "Chat session not found or unauthorized." });
     }
 
-    await chatSessionsColl.updateOne(
-      { _id: new ObjectId(sessionId) },
-      { $set: { title, updated_at: new Date() } }
-    );
+    chatSessionsColl.updateOne({ id: sessionId }, { $set: { title, updated_at: new Date().toISOString() } });
 
     return res.json({ success: true });
   } catch (err: any) {
@@ -448,12 +430,11 @@ router.patch("/sessions/:id", async (req: any, res: Response) => {
 
 /**
  * DELETE /api/chat/sessions/:id
- * Delete a session.
  */
 router.delete("/sessions/:id", async (req: any, res: Response) => {
   try {
     const organizationId = req.user.organizationId;
-    const userId = req.user.userId;
+    const userId = req.user.userId || req.user.id;
     const { id: sessionId } = req.params;
 
     if (!organizationId || !userId || !sessionId) {
@@ -464,20 +445,18 @@ router.delete("/sessions/:id", async (req: any, res: Response) => {
     const chatSessionsColl = controlDb.collection("chat_sessions");
     const chatMessagesColl = controlDb.collection("chat_messages");
 
-    const existing = await chatSessionsColl.findOne({
-      _id: new ObjectId(sessionId),
-      organization_id: new ObjectId(organizationId),
-      user_id: new ObjectId(userId),
+    const existing = chatSessionsColl.findOne({
+      id: sessionId,
+      organization_id: organizationId,
+      user_id: userId,
     });
 
     if (!existing) {
       return res.status(404).json({ success: false, error: "Chat session not found or unauthorized." });
     }
 
-    // Cascade delete messages
-    await chatMessagesColl.deleteMany({ session_id: new ObjectId(sessionId) });
-    // Delete session
-    await chatSessionsColl.deleteOne({ _id: new ObjectId(sessionId) });
+    chatMessagesColl.deleteMany({ session_id: sessionId });
+    chatSessionsColl.deleteOne({ id: sessionId });
 
     return res.json({ success: true });
   } catch (err: any) {
@@ -487,12 +466,11 @@ router.delete("/sessions/:id", async (req: any, res: Response) => {
 
 /**
  * GET /api/chat/sessions/:id/messages
- * Load messages for a session.
  */
 router.get("/sessions/:id/messages", async (req: any, res: Response) => {
   try {
     const organizationId = req.user.organizationId;
-    const userId = req.user.userId;
+    const userId = req.user.userId || req.user.id;
     const { id: sessionId } = req.params;
 
     if (!organizationId || !userId || !sessionId) {
@@ -503,23 +481,23 @@ router.get("/sessions/:id/messages", async (req: any, res: Response) => {
     const chatSessionsColl = controlDb.collection("chat_sessions");
     const chatMessagesColl = controlDb.collection("chat_messages");
 
-    const existing = await chatSessionsColl.findOne({
-      _id: new ObjectId(sessionId),
-      organization_id: new ObjectId(organizationId),
-      user_id: new ObjectId(userId),
+    const existing = chatSessionsColl.findOne({
+      id: sessionId,
+      organization_id: organizationId,
+      user_id: userId,
     });
 
     if (!existing) {
       return res.status(404).json({ error: "Chat session not found or unauthorized." });
     }
 
-    const messages = await chatMessagesColl
-      .find({ session_id: new ObjectId(sessionId) })
-      .sort({ created_at: 1, _id: 1 })
-      .toArray();
+    const messages = chatMessagesColl.findMany(
+      { session_id: sessionId },
+      { sort: { created_at: 1 } }
+    );
 
     const formatted = messages.map((m) => ({
-      id: m._id.toString(),
+      id: m.id,
       role: m.role,
       content: m.content,
       chartResult: m.chart_result ?? undefined,
@@ -539,7 +517,7 @@ router.get("/sessions/:id/messages", async (req: any, res: Response) => {
 router.post("/sessions/:id/messages", async (req: any, res: Response) => {
   try {
     const organizationId = req.user.organizationId;
-    const userId = req.user.userId;
+    const userId = req.user.userId || req.user.id;
     const { id: sessionId } = req.params;
     const { messages } = req.body;
 
@@ -551,35 +529,31 @@ router.post("/sessions/:id/messages", async (req: any, res: Response) => {
     const chatSessionsColl = controlDb.collection("chat_sessions");
     const chatMessagesColl = controlDb.collection("chat_messages");
 
-    const existing = await chatSessionsColl.findOne({
-      _id: new ObjectId(sessionId),
-      organization_id: new ObjectId(organizationId),
-      user_id: new ObjectId(userId),
+    const existing = chatSessionsColl.findOne({
+      id: sessionId,
+      organization_id: organizationId,
+      user_id: userId,
     });
 
     if (!existing) {
       return res.status(404).json({ success: false, error: "Chat session not found or unauthorized." });
     }
 
-    // Replace messages
-    await chatMessagesColl.deleteMany({ session_id: new ObjectId(sessionId) });
+    chatMessagesColl.deleteMany({ session_id: sessionId });
 
     if (messages && messages.length > 0) {
-      await chatMessagesColl.insertMany(
+      chatMessagesColl.insertMany(
         messages.map((m: any) => ({
-          session_id: new ObjectId(sessionId),
+          session_id: sessionId,
           role: m.role,
           content: m.content,
           chart_result: m.chartResult || null,
-          created_at: new Date(m.createdAt || Date.now()),
+          created_at: m.createdAt ? new Date(m.createdAt).toISOString() : new Date().toISOString(),
         }))
       );
     }
 
-    await chatSessionsColl.updateOne(
-      { _id: new ObjectId(sessionId) },
-      { $set: { updated_at: new Date() } }
-    );
+    chatSessionsColl.updateOne({ id: sessionId }, { $set: { updated_at: new Date().toISOString() } });
 
     return res.json({ success: true });
   } catch (err: any) {
@@ -593,12 +567,13 @@ router.post("/sessions/:id/messages", async (req: any, res: Response) => {
 
 /**
  * POST /api/chat/ask
- * Ask DeepSeek AI a question to generate a SQL/Mongo query.
+ * Ask OpenRouter AI a question to generate a SQL/Mongo query.
  */
 router.post("/ask", async (req: any, res: Response) => {
   try {
     const organizationId = req.user.organizationId;
-    const { connectionId, question } = req.body;
+    const { connectionId, question, model: requestedModel } = req.body;
+    const model = requestedModel || DEFAULT_MODEL;
 
     if (!organizationId || !connectionId || !question) {
       return res.status(400).json({ success: false, error: "Missing required parameters." });
@@ -609,10 +584,10 @@ router.post("/ask", async (req: any, res: Response) => {
     const schemaColl = controlDb.collection("schema_metadata");
 
     // Load connection
-    const conn = await connColl.findOne({
-      _id: new ObjectId(connectionId),
+    const conn = connColl.findOne({
+      id: connectionId,
       status: "CONNECTED",
-      organization_id: new ObjectId(organizationId),
+      organization_id: organizationId,
     });
 
     if (!conn) {
@@ -623,10 +598,10 @@ router.post("/ask", async (req: any, res: Response) => {
     }
 
     // Load schema
-    const schemaRows = await schemaColl
-      .find({ connection_id: new ObjectId(connectionId) })
-      .sort({ table_schema: 1, table_name: 1, ordinal_position: 1 })
-      .toArray();
+    const schemaRows = schemaColl.findMany(
+      { connection_id: connectionId },
+      { sort: { ordinal_position: 1 } }
+    );
 
     if (schemaRows.length === 0) {
       return res.status(400).json({
@@ -649,12 +624,24 @@ router.post("/ask", async (req: any, res: Response) => {
 
     if (conn.engine === "MONGODB") {
       const systemPrompt = buildMongoSystemPrompt(formatMongoSchemaForPrompt(rows));
-      const result = await generateText({
-        model: deepseek("deepseek-chat"),
-        system: systemPrompt,
-        prompt: question,
-        temperature: 0.1,
-      });
+
+      let result;
+      try {
+        result = await generateText({
+          model: openrouter(model),
+          system: systemPrompt,
+          prompt: question,
+          temperature: 0.1,
+        });
+      } catch (aiErr: any) {
+        const errMsg = extractErrorMessage(aiErr);
+        console.error(`[CHAT /ask] OpenRouter generateText (MongoDB) failed:`, errMsg);
+        console.error(`[CHAT /ask] Full error:`, aiErr);
+        return res.status(502).json({
+          success: false,
+          error: `AI service error: ${errMsg}`,
+        });
+      }
 
       const rawText = result.text.trim();
       let jsonStr = rawText;
@@ -667,6 +654,7 @@ router.post("/ask", async (req: any, res: Response) => {
       try {
         parsed = JSON.parse(jsonStr);
       } catch (e) {
+        console.error(`[CHAT /ask] AI returned invalid MongoDB JSON. Raw (first 500 chars):`, jsonStr.slice(0, 500));
         return res.status(400).json({
           success: false,
           error: `AI returned invalid MongoDB JSON: ${String(e)}. Raw: ${jsonStr.slice(0, 200)}`,
@@ -681,6 +669,7 @@ router.post("/ask", async (req: any, res: Response) => {
       }
 
       if (!parsed.collection || !Array.isArray(parsed.pipeline)) {
+        console.error(`[CHAT /ask] AI response missing collection or pipeline:`, JSON.stringify(parsed).slice(0, 500));
         return res.status(400).json({
           success: false,
           error: `AI response missing collection or pipeline.`,
@@ -710,48 +699,97 @@ router.post("/ask", async (req: any, res: Response) => {
       });
     }
 
-    // SQL path
-    const systemPrompt = buildSqlSystemPrompt(formatSqlSchemaForPrompt(rows));
-    const { object } = await generateObject({
-      model: deepseek("deepseek-chat"),
-      schema: SqlAiResponseSchema,
-      system: systemPrompt,
-      prompt: question,
-      temperature: 0.1,
-    });
+    // SQL path — use generateText + JSON parsing for broad OpenRouter model compatibility
+    const sqlSystemPrompt = buildSqlSystemPrompt(formatSqlSchemaForPrompt(rows))
+      + `\n\nYou MUST respond with ONLY a single valid JSON object — no markdown, no explanation, no extra text. The JSON must have exactly these keys:\n{\n  "sql": "<SELECT statement with no trailing semicolon>",\n  "chartType": "LINE" | "BAR" | "DONUT" | "TABLE" | "AREA" | "SCATTER" | "ERROR",\n  "chartTitle": "<concise title, max 60 chars>",\n  "xAxisKey": "<field name for X axis>",\n  "yAxisKey": "<primary field name for Y axis>",\n  "yAxisKeys": ["<optional additional Y axis field names>"],\n  "reasoning": "<1-2 sentence explanation>"\n}`;
 
-    if (object.chartType === "ERROR") {
-      return res.status(400).json({
+    let sqlResult;
+    try {
+      sqlResult = await generateText({
+        model: openrouter(model),
+        system: sqlSystemPrompt,
+        prompt: question,
+        temperature: 0.1,
+      });
+    } catch (aiErr: any) {
+      const errMsg = extractErrorMessage(aiErr);
+      console.error(`[CHAT /ask] OpenRouter generateText (SQL) failed:`, errMsg);
+      console.error(`[CHAT /ask] Full error:`, aiErr);
+      return res.status(502).json({
         success: false,
-        error: object.reasoning || "Execution blocked: Destructive operation requested.",
+        error: `AI service error: ${errMsg}`,
       });
     }
 
+    const sqlRawText = sqlResult.text.trim();
+    let sqlJsonStr = sqlRawText;
+    const sqlFenceMatch = sqlRawText.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (sqlFenceMatch) {
+      sqlJsonStr = sqlFenceMatch[1].trim();
+    }
+
+    let object: any;
+    try {
+      object = JSON.parse(sqlJsonStr);
+    } catch (e) {
+      console.error(`[CHAT /ask] AI returned invalid SQL JSON. Raw (first 500 chars):`, sqlJsonStr.slice(0, 500));
+      return res.status(400).json({
+        success: false,
+        error: `AI returned invalid JSON: ${String(e)}. Raw: ${sqlJsonStr.slice(0, 200)}`,
+      });
+    }
+
+    // Handle error/blocked response from AI
+    if (object.error || object.chartType === "ERROR") {
+      return res.status(400).json({
+        success: false,
+        error: object.error || object.reasoning || "Execution blocked: Destructive operation requested.",
+      });
+    }
+
+    // Validate required fields
+    const VALID_CHART_TYPES_SQL = ["LINE", "BAR", "DONUT", "TABLE", "AREA", "SCATTER", "ERROR"] as const;
+    const sqlChartType = VALID_CHART_TYPES_SQL.includes(object.chartType) ? object.chartType : "TABLE";
+
+    const response = {
+      sql: object.sql || "",
+      chartType: sqlChartType,
+      chartTitle: object.chartTitle || "Query Result",
+      xAxisKey: object.xAxisKey || "",
+      yAxisKey: object.yAxisKey || "",
+      yAxisKeys: Array.isArray(object.yAxisKeys) ? object.yAxisKeys : undefined,
+      reasoning: object.reasoning || "",
+    };
+
     return res.json({
       success: true,
-      response: object,
+      response,
       connectionId,
     });
   } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message || String(err) });
+    const errMsg = extractErrorMessage(err);
+    console.error(`[CHAT /ask] Unhandled error:`, errMsg);
+    console.error(`[CHAT /ask] Stack:`, err.stack || err);
+    return res.status(500).json({ success: false, error: errMsg });
   }
 });
 
 /**
  * POST /api/chat/generate-title
- * Generate a chat title using DeepSeek AI.
+ * Generate a chat title using OpenRouter AI.
  */
 router.post("/generate-title", async (req: any, res: Response) => {
   try {
-    const { firstMessage } = req.body;
+    const { firstMessage, model: requestedModel } = req.body;
     if (!firstMessage) {
       return res.status(400).json({ error: "Missing firstMessage." });
     }
 
+    const model = requestedModel || DEFAULT_MODEL;
     const fallback = firstMessage.slice(0, 40).trim() + (firstMessage.length > 40 ? "…" : "");
     try {
       const result = await generateText({
-        model: deepseek("deepseek-chat"),
+        model: openrouter(model),
         system:
           "Generate a concise 4-6 word title for a chat conversation based on the user's first message. Output ONLY the title — no quotes, no punctuation at the end, no explanation.",
         prompt: firstMessage,
@@ -759,11 +797,108 @@ router.post("/generate-title", async (req: any, res: Response) => {
       });
       const title = result.text.trim().replace(/^["']|["']$/g, "").slice(0, 60);
       return res.json({ title: title || fallback });
-    } catch {
+    } catch (titleErr: any) {
+      console.error(`[CHAT /generate-title] AI call failed, using fallback:`, extractErrorMessage(titleErr));
       return res.json({ title: fallback });
     }
   } catch (err: any) {
-    return res.status(500).json({ error: err.message || String(err) });
+    console.error(`[CHAT /generate-title] Unhandled error:`, extractErrorMessage(err));
+    return res.status(500).json({ error: extractErrorMessage(err) });
+  }
+});
+
+/**
+ * POST /api/chat/ask-upload
+ * Answer a question about uploaded CSV/JSON data using AI.
+ */
+router.post("/ask-upload", async (req: any, res: Response) => {
+  try {
+    const { uploadId, question, model: requestedModel, columns, sampleRows } = req.body;
+    const model = requestedModel || DEFAULT_MODEL;
+
+    if (!question || !columns || !sampleRows) {
+      return res.status(400).json({ success: false, error: "Missing required parameters." });
+    }
+
+    const dataSchema = `UPLOADED DATA COLUMNS:\n${columns.join(", ")}\n\nSAMPLE ROWS (first 5):\n${JSON.stringify(sampleRows.slice(0, 5), null, 2)}`;
+
+    const systemPrompt = `You are a data analyst. The user has uploaded a dataset. Analyze the data and answer their question.
+
+${dataSchema}
+
+Respond with a JSON object:
+{
+  "chartType": "TABLE" | "BAR" | "LINE" | "DONUT" | "AREA" | "SCATTER",
+  "chartTitle": "<concise title, max 60 chars>",
+  "xAxisKey": "<column name for X axis>",
+  "yAxisKey": "<column name for Y axis>",
+  "yAxisKeys": ["<optional additional Y axis columns>"],
+  "reasoning": "<1-2 sentence explanation>",
+  "filteredRows": [<array of row objects to display — max 500 rows, filtered/aggregated if needed>]
+}
+
+RULES:
+- Use EXACT column names from the data
+- For aggregation questions, compute the aggregation in filteredRows
+- filteredRows must be a valid JSON array of objects
+- Respond with ONLY the JSON, no extra text`;
+
+    let result;
+    try {
+      result = await generateText({
+        model: openrouter(model),
+        system: systemPrompt,
+        prompt: question,
+        temperature: 0.1,
+      });
+    } catch (aiErr: any) {
+      const errMsg = extractErrorMessage(aiErr);
+      console.error(`[CHAT /ask-upload] OpenRouter generateText failed:`, errMsg);
+      console.error(`[CHAT /ask-upload] Full error:`, aiErr);
+      return res.status(502).json({
+        success: false,
+        error: `AI service error: ${errMsg}`,
+      });
+    }
+
+    const rawText = result.text.trim();
+    let jsonStr = rawText;
+    const fenceMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (fenceMatch) jsonStr = fenceMatch[1].trim();
+
+    let parsed: any;
+    try {
+      parsed = JSON.parse(jsonStr);
+    } catch (e) {
+      console.error(`[CHAT /ask-upload] AI returned invalid JSON. Raw (first 500 chars):`, jsonStr.slice(0, 500));
+      return res.status(400).json({
+        success: false,
+        error: `AI returned invalid JSON: ${String(e)}`,
+      });
+    }
+
+    const VALID_CHART_TYPES = ["LINE", "BAR", "DONUT", "TABLE", "AREA", "SCATTER"] as const;
+    const chartType = VALID_CHART_TYPES.includes(parsed.chartType) ? parsed.chartType : "TABLE";
+
+    return res.json({
+      success: true,
+      response: {
+        sql: `upload:${uploadId}`,
+        chartType,
+        chartTitle: parsed.chartTitle || "Data Analysis",
+        xAxisKey: parsed.xAxisKey || columns[0],
+        yAxisKey: parsed.yAxisKey || columns[1] || columns[0],
+        yAxisKeys: Array.isArray(parsed.yAxisKeys) ? parsed.yAxisKeys : undefined,
+        reasoning: parsed.reasoning || "",
+      },
+      rows: parsed.filteredRows || sampleRows,
+      columns,
+    });
+  } catch (err: any) {
+    const errMsg = extractErrorMessage(err);
+    console.error(`[CHAT /ask-upload] Unhandled error:`, errMsg);
+    console.error(`[CHAT /ask-upload] Stack:`, err.stack || err);
+    return res.status(500).json({ success: false, error: errMsg });
   }
 });
 

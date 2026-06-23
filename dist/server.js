@@ -8,11 +8,10 @@ const cors_1 = __importDefault(require("cors"));
 const dotenv_1 = __importDefault(require("dotenv"));
 const path_1 = __importDefault(require("path"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
-const mongodb_1 = require("mongodb");
 // Load environment variables (look in server root first, then fall back to parent monorepo folder)
 dotenv_1.default.config({ path: path_1.default.join(__dirname, "../.env") });
 dotenv_1.default.config({ path: path_1.default.join(__dirname, "../../.env") });
-const query_job_1 = require("./query-job");
+const json_db_1 = require("./json-db");
 const introspection_1 = require("./introspection");
 const pool_manager_1 = require("./pool-manager");
 const swagger_spec_1 = require("./swagger-spec");
@@ -20,11 +19,14 @@ const cookie_parser_1 = __importDefault(require("cookie-parser"));
 const auth_1 = __importDefault(require("./routes/auth"));
 const chat_1 = __importDefault(require("./routes/chat"));
 const connections_1 = __importDefault(require("./routes/connections"));
+const onboarding_1 = __importDefault(require("./routes/onboarding"));
+const templates_1 = __importDefault(require("./routes/templates"));
+const upload_1 = __importDefault(require("./routes/upload"));
 const app = (0, express_1.default)();
 const PORT = process.env.BACKEND_PORT || 3002;
 const BACKEND_SECRET = process.env.BACKEND_SECRET || "bi-lite-backend-secret-key-super-secure-87654321";
 app.use((0, cors_1.default)({ origin: process.env.FRONTEND_URL || "http://localhost:3000", credentials: true }));
-app.use(express_1.default.json());
+app.use(express_1.default.json({ limit: "50mb" }));
 app.use((0, cookie_parser_1.default)());
 // Serve Swagger UI API documentation
 app.get("/api-docs/json", (req, res) => {
@@ -39,18 +41,9 @@ app.get("/api-docs", (req, res) => {
   <link rel="stylesheet" type="text/css" href="https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/4.18.3/swagger-ui.css" >
   <link rel="icon" type="image/png" href="https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/4.18.3/favicon-32x32.png" sizes="32x32" />
   <style>
-    html {
-      box-sizing: border-box;
-      overflow: -moz-scrollbars-vertical;
-      overflow-y: scroll;
-    }
-    *, *:before, *:after {
-      box-sizing: inherit;
-    }
-    body {
-      margin: 0;
-      background: #fafafa;
-    }
+    html { box-sizing: border-box; overflow: -moz-scrollbars-vertical; overflow-y: scroll; }
+    *, *:before, *:after { box-sizing: inherit; }
+    body { margin: 0; background: #fafafa; }
   </style>
 </head>
 <body>
@@ -63,13 +56,8 @@ app.get("/api-docs", (req, res) => {
         url: "/api-docs/json",
         dom_id: '#swagger-ui',
         deepLinking: true,
-        presets: [
-          SwaggerUIBundle.presets.apis,
-          SwaggerUIStandalonePreset
-        ],
-        plugins: [
-          SwaggerUIBundle.plugins.DownloadUrl
-        ],
+        presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
+        plugins: [SwaggerUIBundle.plugins.DownloadUrl],
         layout: "StandaloneLayout"
       });
       window.ui = ui;
@@ -100,12 +88,12 @@ const authMiddleware = (req, res, next) => {
 app.use("/api/auth", auth_1.default);
 app.use("/api/chat", authMiddleware, chat_1.default);
 app.use("/api/connections", authMiddleware, connections_1.default);
+app.use("/api/onboard", onboarding_1.default); // Public — no auth middleware
+app.use("/api/templates", authMiddleware, templates_1.default);
+app.use("/api/upload", authMiddleware, upload_1.default);
 // ---------------------------------------------------------------------------
 // Routes
 // ---------------------------------------------------------------------------
-/**
- * Health check endpoint
- */
 app.get("/health", (req, res) => {
     res.json({ status: "healthy", timestamp: new Date() });
 });
@@ -117,13 +105,17 @@ app.post("/api/connection/test", authMiddleware, async (req, res) => {
     const start = Date.now();
     try {
         if (creds.engine === "MONGODB") {
-            if (!creds.connectionUri) {
+            let testUri = creds.connectionUri;
+            if (testUri === "mongodb+srv://********************************************************") {
+                testUri = process.env.SAMPLE_DATASET_URI || "";
+            }
+            if (!testUri) {
                 return res.status(400).json({ success: false, error: "Connection URI required." });
             }
             const client = await (0, pool_manager_1.getMongoClient)({
                 id: "temp-test",
                 engine: "MONGODB",
-                decryptedUri: creds.connectionUri,
+                decryptedUri: testUri,
                 sslEnabled: creds.sslEnabled ?? false,
             });
             const info = await client.db().admin().serverInfo();
@@ -175,6 +167,9 @@ app.post("/api/connection/test", authMiddleware, async (req, res) => {
  */
 app.post("/api/connection/introspect", authMiddleware, async (req, res) => {
     const creds = req.body;
+    if (creds.connectionUri === "mongodb+srv://********************************************************") {
+        creds.connectionUri = process.env.SAMPLE_DATASET_URI || "";
+    }
     const result = await (0, introspection_1.introspectTransientSchema)(creds);
     return res.json(result);
 });
@@ -200,28 +195,26 @@ app.post("/api/query/execute", authMiddleware, async (req, res) => {
         return res.status(400).json({ success: false, error: "Missing required parameters." });
     }
     try {
-        const controlDb = await (0, query_job_1.getControlDb)();
+        const controlDb = await (0, json_db_1.getControlDb)();
         const connColl = controlDb.collection("database_connections");
-        // Verify database connection belongs to the organization
-        const conn = await connColl.findOne({
-            _id: new mongodb_1.ObjectId(connectionId),
-            organization_id: new mongodb_1.ObjectId(organizationId),
-        });
+        const conn = connColl.findOne({ id: connectionId, organization_id: organizationId });
         if (!conn) {
             return res.status(404).json({ success: false, error: "Database connection not found or unauthorized." });
         }
         const jobsColl = controlDb.collection("query_jobs");
-        const job = await jobsColl.insertOne({
+        const jobId = (0, json_db_1.newId)();
+        jobsColl.insertOne({
+            id: jobId,
             organizationId,
             connectionId,
             query,
             status: "pending",
-            createdAt: new Date(),
-            updatedAt: new Date(),
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
         });
-        const jobId = job.insertedId.toString();
         // Start background worker, do not await it
-        (0, query_job_1.startQueryJob)(jobId, {
+        const { startQueryJob } = require("./query-job");
+        startQueryJob(jobId, {
             connectionId,
             engine: conn.engine,
             query,
@@ -243,11 +236,8 @@ app.get("/api/query/status/:jobId", authMiddleware, async (req, res) => {
     const { jobId } = req.params;
     const organizationId = req.user.organizationId;
     try {
-        const controlDb = await (0, query_job_1.getControlDb)();
-        const job = await controlDb.collection("query_jobs").findOne({
-            _id: new mongodb_1.ObjectId(jobId),
-            organizationId,
-        });
+        const controlDb = await (0, json_db_1.getControlDb)();
+        const job = controlDb.collection("query_jobs").findOne({ id: jobId, organizationId });
         if (!job) {
             return res.status(404).json({ success: false, error: "Query job not found." });
         }
@@ -271,13 +261,10 @@ app.get("/api/query/results/:jobId", authMiddleware, async (req, res) => {
     const { jobId } = req.params;
     const page = parseInt(req.query.page || "1", 10);
     const organizationId = req.user.organizationId;
-    const pageSize = 500; // Keep in sync with query-job.ts
+    const pageSize = 500;
     try {
-        const controlDb = await (0, query_job_1.getControlDb)();
-        const job = await controlDb.collection("query_jobs").findOne({
-            _id: new mongodb_1.ObjectId(jobId),
-            organizationId,
-        });
+        const controlDb = await (0, json_db_1.getControlDb)();
+        const job = controlDb.collection("query_jobs").findOne({ id: jobId, organizationId });
         if (!job) {
             return res.status(404).json({ success: false, error: "Query job not found." });
         }
@@ -287,10 +274,7 @@ app.get("/api/query/results/:jobId", authMiddleware, async (req, res) => {
                 error: `Results are not ready. Job status: ${job.status}`,
             });
         }
-        const resultDoc = await controlDb.collection("query_job_results").findOne({
-            jobId: new mongodb_1.ObjectId(jobId),
-            pageNum: page,
-        });
+        const resultDoc = controlDb.collection("query_job_results").findOne({ jobId, pageNum: page });
         const totalPages = Math.ceil((job.rowCount || 0) / pageSize);
         return res.json({
             success: true,
