@@ -5,6 +5,8 @@ exports.startQueryJob = startQueryJob;
 const pool_manager_1 = require("./pool-manager");
 const crypto_helper_1 = require("./crypto-helper");
 const json_db_1 = require("./json-db");
+const constants_1 = require("./constants");
+const node_sql_parser_1 = require("node-sql-parser");
 // Define the maximum rows we store for a single query job to prevent infinite scans
 const MAX_JOB_ROWS_LIMIT = 50_000;
 const PAGE_SIZE = 500;
@@ -79,7 +81,7 @@ async function startQueryJob(jobId, data) {
                     // so we fallback to read-only transaction protection.
                 }
                 // --- 5. Hard statement_timeout ---
-                await pgClient.query("SET statement_timeout = '10s'");
+                await pgClient.query(`SET statement_timeout = '${constants_1.STATEMENT_TIMEOUT}'`);
                 // Enforce read-only transaction
                 await pgClient.query("BEGIN READ ONLY");
                 // --- 6. Pre-flight EXPLAIN checks ---

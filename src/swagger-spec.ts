@@ -27,21 +27,25 @@ export const swaggerDocument = {
     },
   ],
   paths: {
+    // -------------------------------------------------------------------------
+    // Health
+    // -------------------------------------------------------------------------
     "/health": {
       get: {
-        summary: "Retrieve server health",
-        description: "Checks if the server is healthy and returns the current timestamp.",
-        security: [], // No auth needed
+        tags: ["System"],
+        summary: "Server health check",
+        description: "Returns server health status and timestamp.",
+        security: [],
         responses: {
           200: {
-            description: "Success",
+            description: "Server is healthy",
             content: {
               "application/json": {
                 schema: {
                   type: "object",
                   properties: {
                     status: { type: "string", example: "healthy" },
-                    timestamp: { type: "string", example: "2026-06-08T05:00:00.000Z" },
+                    timestamp: { type: "string", example: "2026-06-22T09:00:00.000Z" },
                   },
                 },
               },
@@ -50,8 +54,381 @@ export const swaggerDocument = {
         },
       },
     },
+
+    // -------------------------------------------------------------------------
+    // Auth — Register
+    // -------------------------------------------------------------------------
+    "/api/auth/register": {
+      post: {
+        tags: ["Auth"],
+        summary: "Register a new user",
+        description: "Creates a new user and their personal organization. If a `prospectId` is supplied (from the onboarding flow) the pending prospect record is cleaned up.",
+        security: [],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["email", "password", "name"],
+                properties: {
+                  email: { type: "string", format: "email", example: "john@example.com" },
+                  password: { type: "string", minLength: 8, example: "myPassword123" },
+                  name: { type: "string", example: "John Doe" },
+                  prospectId: { type: "string", description: "Optional — GUID from onboarding set-password URL", example: "a1b2c3d4-..." },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: "User registered successfully",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    success: { type: "boolean", example: true },
+                    message: { type: "string", example: "User registered successfully." },
+                  },
+                },
+              },
+            },
+          },
+          400: { description: "Missing fields or user already exists" },
+          500: { description: "Internal server error" },
+        },
+      },
+    },
+
+    // -------------------------------------------------------------------------
+    // Auth — Login
+    // -------------------------------------------------------------------------
+    "/api/auth/login": {
+      post: {
+        tags: ["Auth"],
+        summary: "Login",
+        description: "Authenticates a user, returns an access token in the response body and sets a `refreshToken` HTTP-only cookie.",
+        security: [],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["email", "password"],
+                properties: {
+                  email: { type: "string", format: "email", example: "john@example.com" },
+                  password: { type: "string", example: "myPassword123" },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: "Login successful",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    success: { type: "boolean", example: true },
+                    accessToken: { type: "string", example: "eyJhbGciOi..." },
+                    user: {
+                      type: "object",
+                      properties: {
+                        id: { type: "string", example: "uuid-v4" },
+                        name: { type: "string", example: "John Doe" },
+                        email: { type: "string", example: "john@example.com" },
+                        role: { type: "string", example: "MEMBER" },
+                        avatarUrl: { type: "string", nullable: true, example: null },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          401: { description: "Invalid credentials" },
+          500: { description: "Internal server error" },
+        },
+      },
+    },
+
+    // -------------------------------------------------------------------------
+    // Auth — Refresh Token
+    // -------------------------------------------------------------------------
+    "/api/auth/refresh-token": {
+      post: {
+        tags: ["Auth"],
+        summary: "Refresh access token",
+        description: "Issues a new access token using the `refreshToken` HTTP-only cookie. No request body needed.",
+        security: [],
+        responses: {
+          200: {
+            description: "New access token",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    success: { type: "boolean", example: true },
+                    accessToken: { type: "string", example: "eyJhbGciOi..." },
+                  },
+                },
+              },
+            },
+          },
+          401: { description: "No or invalid refresh token" },
+        },
+      },
+    },
+
+    // -------------------------------------------------------------------------
+    // Auth — Forgot Password
+    // -------------------------------------------------------------------------
+    "/api/auth/forgot-password": {
+      post: {
+        tags: ["Auth"],
+        summary: "Request password reset",
+        description: "Sends a password reset link to the provided email. In dev mode the link is printed to the server console if SMTP is not configured.",
+        security: [],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["email"],
+                properties: {
+                  email: { type: "string", format: "email", example: "john@example.com" },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: "Reset link sent (or silently skipped if user not found)",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    success: { type: "boolean", example: true },
+                    message: { type: "string", example: "If the email is registered, a reset link was sent." },
+                  },
+                },
+              },
+            },
+          },
+          400: { description: "Email is required" },
+        },
+      },
+    },
+
+    // -------------------------------------------------------------------------
+    // Auth — Reset Password
+    // -------------------------------------------------------------------------
+    "/api/auth/reset-password": {
+      post: {
+        tags: ["Auth"],
+        summary: "Reset password with token",
+        description: "Validates the reset token (1-hour expiry) and updates the user's password.",
+        security: [],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["token", "password"],
+                properties: {
+                  token: { type: "string", example: "abc123resettoken" },
+                  password: { type: "string", minLength: 8, example: "newPassword123" },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: "Password reset successfully",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    success: { type: "boolean", example: true },
+                    message: { type: "string", example: "Password has been successfully reset." },
+                  },
+                },
+              },
+            },
+          },
+          400: { description: "Invalid or expired token" },
+        },
+      },
+    },
+
+    // -------------------------------------------------------------------------
+    // Auth — Logout
+    // -------------------------------------------------------------------------
+    "/api/auth/logout": {
+      post: {
+        tags: ["Auth"],
+        summary: "Logout",
+        description: "Clears the `refreshToken` cookie and invalidates the stored refresh token.",
+        responses: {
+          200: {
+            description: "Logged out",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    success: { type: "boolean", example: true },
+                    message: { type: "string", example: "Logged out." },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+
+    // -------------------------------------------------------------------------
+    // Auth — Update display name
+    // -------------------------------------------------------------------------
+    "/api/auth/user": {
+      put: {
+        tags: ["Auth"],
+        summary: "Update display name",
+        description: "Updates the authenticated user's display name.",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["name"],
+                properties: {
+                  name: { type: "string", example: "Jane Doe" },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: "Name updated",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    success: { type: "boolean", example: true },
+                    name: { type: "string", example: "Jane Doe" },
+                  },
+                },
+              },
+            },
+          },
+          400: { description: "Name is required" },
+          401: { description: "Unauthorized" },
+        },
+      },
+    },
+
+    // -------------------------------------------------------------------------
+    // Onboarding
+    // -------------------------------------------------------------------------
+    "/api/onboard": {
+      post: {
+        tags: ["Onboarding"],
+        summary: "Onboard a user from an external system",
+        description: "Public endpoint. Creates a prospect record for a new user and returns a set-password URL, or returns a login URL if the user already exists.",
+        security: [],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["name", "email"],
+                properties: {
+                  name: { type: "string", example: "Alice Smith" },
+                  email: { type: "string", format: "email", example: "alice@company.com" },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: "Prospect created or existing user found",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    existingUser: { type: "boolean", example: false },
+                    setPasswordUrl: { type: "string", example: "http://localhost:3000/set-password/uuid-v4" },
+                    loginUrl: { type: "string", example: "http://localhost:3000/signin?email=alice%40company.com" },
+                    message: { type: "string" },
+                  },
+                },
+              },
+            },
+          },
+          400: { description: "name and email are required" },
+        },
+      },
+    },
+    "/api/onboard/prospect/{id}": {
+      get: {
+        tags: ["Onboarding"],
+        summary: "Get prospect user info",
+        description: "Returns the name and email for a prospect ID (used by the set-password page).",
+        security: [],
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+            example: "uuid-v4",
+          },
+        ],
+        responses: {
+          200: {
+            description: "Prospect info",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    name: { type: "string", example: "Alice Smith" },
+                    email: { type: "string", example: "alice@company.com" },
+                  },
+                },
+              },
+            },
+          },
+          404: { description: "Prospect not found" },
+        },
+      },
+    },
+
+    // -------------------------------------------------------------------------
+    // Connections
+    // -------------------------------------------------------------------------
     "/api/connection/test": {
       post: {
+        tags: ["Connections"],
         summary: "Test database connection",
         description: "Tests connectivity to a PostgreSQL or MongoDB database using transient setup credentials.",
         requestBody: {
@@ -96,8 +473,9 @@ export const swaggerDocument = {
     },
     "/api/connection/introspect": {
       post: {
+        tags: ["Connections"],
         summary: "Transient schema introspection",
-        description: "Introspects a database dynamically before saving it, returning the list of tables and columns.",
+        description: "Introspects a database dynamically before saving, returning its tables and columns.",
         requestBody: {
           required: true,
           content: {
@@ -120,30 +498,15 @@ export const swaggerDocument = {
         },
         responses: {
           200: {
-            description: "List of tables and discovered columns",
+            description: "Discovered schema",
             content: {
               "application/json": {
                 schema: {
                   type: "object",
                   properties: {
                     success: { type: "boolean", example: true },
-                    tables: { type: "array", items: { type: "string" }, example: ["public.users", "public.orders"] },
-                    columns: {
-                      type: "array",
-                      items: {
-                        type: "object",
-                        properties: {
-                          tableSchema: { type: "string", example: "public" },
-                          tableName: { type: "string", example: "users" },
-                          columnName: { type: "string", example: "email" },
-                          dataType: { type: "string", example: "varchar" },
-                          isNullable: { type: "boolean", example: false },
-                          isPrimaryKey: { type: "boolean", example: false },
-                          columnDefault: { type: "string", nullable: true, example: null },
-                          ordinalPosition: { type: "integer", example: 2 },
-                        },
-                      },
-                    },
+                    tables: { type: "array", items: { type: "string" } },
+                    columns: { type: "array", items: { type: "object" } },
                   },
                 },
               },
@@ -154,8 +517,9 @@ export const swaggerDocument = {
     },
     "/api/introspection/run": {
       post: {
-        summary: "Introspect saved connection",
-        description: "Introspects schema columns incrementally and saves them in the control plane MongoDB for a saved connection ID.",
+        tags: ["Connections"],
+        summary: "Introspect a saved connection",
+        description: "Introspects and caches the schema for a saved connection ID.",
         requestBody: {
           required: true,
           content: {
@@ -163,7 +527,7 @@ export const swaggerDocument = {
               schema: {
                 type: "object",
                 properties: {
-                  connectionId: { type: "string", example: "6657bfb1a51187428169e001" },
+                  connectionId: { type: "string", example: "uuid-v4" },
                 },
               },
             },
@@ -179,7 +543,6 @@ export const swaggerDocument = {
                   properties: {
                     success: { type: "boolean", example: true },
                     tablesCount: { type: "integer", example: 12 },
-                    error: { type: "string", example: "Unauthorized" },
                   },
                 },
               },
@@ -188,10 +551,15 @@ export const swaggerDocument = {
         },
       },
     },
+
+    // -------------------------------------------------------------------------
+    // Query Execution
+    // -------------------------------------------------------------------------
     "/api/query/execute": {
       post: {
+        tags: ["Query"],
         summary: "Execute an analytical query asynchronously",
-        description: "Starts a background query execution job and enqueues it, returning a jobId instantly.",
+        description: "Enqueues a background query job and returns a jobId immediately.",
         requestBody: {
           required: true,
           content: {
@@ -199,9 +567,8 @@ export const swaggerDocument = {
               schema: {
                 type: "object",
                 properties: {
-                  connectionId: { type: "string", example: "6657bfb1a51187428169e001" },
-                  engine: { type: "string", enum: ["POSTGRESQL", "MONGODB"], example: "POSTGRESQL" },
-                  query: { type: "string", example: "SELECT * FROM public.orders LIMIT 100" },
+                  connectionId: { type: "string", example: "uuid-v4" },
+                  query: { type: "string", example: "SELECT * FROM orders LIMIT 100" },
                 },
               },
             },
@@ -209,14 +576,14 @@ export const swaggerDocument = {
         },
         responses: {
           200: {
-            description: "Enqueue outcome",
+            description: "Job enqueued",
             content: {
               "application/json": {
                 schema: {
                   type: "object",
                   properties: {
                     success: { type: "boolean", example: true },
-                    jobId: { type: "string", example: "6657bfb1a51187428169f999" },
+                    jobId: { type: "string", example: "uuid-v4" },
                   },
                 },
               },
@@ -227,31 +594,25 @@ export const swaggerDocument = {
     },
     "/api/query/status/{jobId}": {
       get: {
-        summary: "Check query job execution status",
-        description: "Returns the current state of a background query execution job.",
+        tags: ["Query"],
+        summary: "Check query job status",
         parameters: [
-          {
-            name: "jobId",
-            in: "path",
-            required: true,
-            schema: { type: "string" },
-            example: "6657bfb1a51187428169f999",
-          },
+          { name: "jobId", in: "path", required: true, schema: { type: "string" } },
         ],
         responses: {
           200: {
-            description: "Current status details",
+            description: "Job status",
             content: {
               "application/json": {
                 schema: {
                   type: "object",
                   properties: {
                     success: { type: "boolean", example: true },
-                    status: { type: "string", enum: ["pending", "processing", "completed", "failed"], example: "completed" },
+                    status: { type: "string", enum: ["pending", "processing", "completed", "failed"] },
                     rowCount: { type: "integer", example: 1520 },
-                    columns: { type: "array", items: { type: "string" }, example: ["id", "amount", "status"] },
+                    columns: { type: "array", items: { type: "string" } },
                     durationMs: { type: "integer", example: 450 },
-                    error: { type: "string", nullable: true, example: null },
+                    error: { type: "string", nullable: true },
                   },
                 },
               },
@@ -262,41 +623,161 @@ export const swaggerDocument = {
     },
     "/api/query/results/{jobId}": {
       get: {
-        summary: "Get a paginated chunk of query results",
-        description: "Returns a page of 500 rows for a completed query job.",
+        tags: ["Query"],
+        summary: "Get paginated query results",
         parameters: [
-          {
-            name: "jobId",
-            in: "path",
-            required: true,
-            schema: { type: "string" },
-            example: "6657bfb1a51187428169f999",
-          },
-          {
-            name: "page",
-            in: "query",
-            required: false,
-            schema: { type: "integer", default: 1 },
-            example: 1,
-          },
+          { name: "jobId", in: "path", required: true, schema: { type: "string" } },
+          { name: "page", in: "query", required: false, schema: { type: "integer", default: 1 } },
         ],
         responses: {
           200: {
-            description: "Paginated rows",
+            description: "Paginated result rows",
             content: {
               "application/json": {
                 schema: {
                   type: "object",
                   properties: {
                     success: { type: "boolean", example: true },
-                    rows: {
-                      type: "array",
-                      items: { type: "object" },
-                      example: [{ id: 1, amount: 250, status: "completed" }],
-                    },
+                    rows: { type: "array", items: { type: "object" } },
                     pageNum: { type: "integer", example: 1 },
                     totalPages: { type: "integer", example: 4 },
                     rowCount: { type: "integer", example: 1520 },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+
+    // -------------------------------------------------------------------------
+    // Templates
+    // -------------------------------------------------------------------------
+    "/api/templates": {
+      get: {
+        tags: ["Templates"],
+        summary: "List user templates",
+        description: "Returns all custom prompt templates for the authenticated user.",
+        responses: {
+          200: {
+            description: "Array of templates",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      id: { type: "string" },
+                      text: { type: "string", example: "Show monthly revenue trends" },
+                      createdAt: { type: "string" },
+                      updatedAt: { type: "string" },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      post: {
+        tags: ["Templates"],
+        summary: "Create a template",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["text"],
+                properties: {
+                  text: { type: "string", example: "Show monthly revenue trends" },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: "Created",
+            content: {
+              "application/json": {
+                schema: { type: "object", properties: { success: { type: "boolean" }, id: { type: "string" } } },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/api/templates/{id}": {
+      put: {
+        tags: ["Templates"],
+        summary: "Update a template",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["text"],
+                properties: { text: { type: "string" } },
+              },
+            },
+          },
+        },
+        responses: {
+          200: { description: "Updated" },
+          404: { description: "Not found" },
+        },
+      },
+      delete: {
+        tags: ["Templates"],
+        summary: "Delete a template",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        responses: {
+          200: { description: "Deleted" },
+          404: { description: "Not found" },
+        },
+      },
+    },
+
+    // -------------------------------------------------------------------------
+    // File Upload
+    // -------------------------------------------------------------------------
+    "/api/upload/data": {
+      post: {
+        tags: ["Upload"],
+        summary: "Upload a CSV or JSON file",
+        description: "Parses an uploaded CSV or JSON file and returns columns, row count, and sample rows for AI analysis.",
+        requestBody: {
+          required: true,
+          content: {
+            "multipart/form-data": {
+              schema: {
+                type: "object",
+                properties: {
+                  file: { type: "string", format: "binary", description: ".csv or .json file (max 10MB)" },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: "Upload parsed successfully",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    success: { type: "boolean", example: true },
+                    uploadId: { type: "string" },
+                    fileName: { type: "string" },
+                    columns: { type: "array", items: { type: "string" } },
+                    rowCount: { type: "integer" },
+                    sampleRows: { type: "array", items: { type: "object" } },
                   },
                 },
               },

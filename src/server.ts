@@ -177,12 +177,17 @@ app.post("/api/connection/test", authMiddleware, async (req, res) => {
  * Run schema introspection on dynamic setup credentials (transient)
  */
 app.post("/api/connection/introspect", authMiddleware, async (req, res) => {
-  const creds = req.body;
-  if (creds.connectionUri === "mongodb+srv://********************************************************") {
-    creds.connectionUri = process.env.SAMPLE_DATASET_URI || "";
+  try {
+    const creds = req.body;
+    if (creds.connectionUri === "mongodb+srv://********************************************************") {
+      creds.connectionUri = process.env.SAMPLE_DATASET_URI || "";
+    }
+    const result = await introspectTransientSchema(creds);
+    return res.json(result);
+  } catch (err: any) {
+    console.error("[INTROSPECT] Error:", err.message || err);
+    return res.status(500).json({ success: false, error: err.message || String(err) });
   }
-  const result = await introspectTransientSchema(creds);
-  return res.json(result);
 });
 
 /**
@@ -276,6 +281,7 @@ app.get("/api/query/status/:jobId", authMiddleware, async (req, res) => {
       error: job.error || null,
     });
   } catch (err: any) {
+    console.error(`[QUERY /status/${req.params.jobId}] Error:`, err.message || err);
     return res.status(500).json({ success: false, error: err.message || String(err) });
   }
 });
@@ -316,6 +322,7 @@ app.get("/api/query/results/:jobId", authMiddleware, async (req, res) => {
       rowCount: job.rowCount || 0,
     });
   } catch (err: any) {
+    console.error(`[QUERY /results/${req.params.jobId}] Error:`, err.message || err);
     return res.status(500).json({ success: false, error: err.message || String(err) });
   }
 });
