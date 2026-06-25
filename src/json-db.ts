@@ -6,9 +6,13 @@ import { randomUUID } from "crypto";
 // Config
 // ---------------------------------------------------------------------------
 
+const isVercel = process.env.VERCEL === "1";
+const DEFAULT_DATA_DIR = path.join(__dirname, "..", "data");
 const DATA_DIR = process.env.DATA_DIR
   ? path.resolve(process.env.DATA_DIR)
-  : path.join(__dirname, "..", "data");
+  : isVercel
+    ? "/tmp/data"
+    : DEFAULT_DATA_DIR;
 
 // Ensure data directory exists on startup
 if (!fs.existsSync(DATA_DIR)) {
@@ -16,6 +20,24 @@ if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
   } catch (err) {
     console.warn(`Warning: Could not create data directory at ${DATA_DIR}:`, err);
+  }
+}
+
+// Copy seed files to /tmp/data on Vercel so they are writable
+if (isVercel && DATA_DIR === "/tmp/data") {
+  try {
+    if (fs.existsSync(DEFAULT_DATA_DIR)) {
+      const files = fs.readdirSync(DEFAULT_DATA_DIR);
+      for (const file of files) {
+        const srcPath = path.join(DEFAULT_DATA_DIR, file);
+        const destPath = path.join(DATA_DIR, file);
+        if (fs.statSync(srcPath).isFile() && !fs.existsSync(destPath)) {
+          fs.copyFileSync(srcPath, destPath);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("Warning: Could not seed data to /tmp/data:", err);
   }
 }
 
