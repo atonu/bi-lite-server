@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { v4 as uuidv4 } from "uuid";
+import { randomUUID } from "crypto";
 
 // ---------------------------------------------------------------------------
 // Config
@@ -127,7 +127,7 @@ export class Collection {
 
   /** Generate a new unique ID */
   static newId(): string {
-    return uuidv4();
+    return randomUUID();
   }
 
   findMany(filter: Filter = {}, options: { sort?: Record<string, 1 | -1>; limit?: number } = {}): any[] {
@@ -284,7 +284,7 @@ export async function getControlDb(): Promise<JsonDb> {
 // ---------------------------------------------------------------------------
 
 export function newId(): string {
-  return uuidv4();
+  return randomUUID();
 }
 
 export { DATA_DIR };
