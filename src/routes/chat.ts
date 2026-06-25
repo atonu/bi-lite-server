@@ -54,7 +54,7 @@ function extractErrorMessage(err: any): string {
       if (body?.error?.message) {
         messages.push(body.error.message);
       }
-    } catch {}
+    } catch { }
   }
 
   // Check for data property (some AI SDK errors have this)
@@ -938,12 +938,23 @@ RULES:
 - filteredRows must be a valid JSON array of objects
 - Respond with ONLY the JSON, no extra text`;
 
-    const result = await generateText({
-      model: openrouter(model),
-      system: systemPrompt,
-      prompt: question,
-      temperature: 0.1,
-    });
+    let result;
+    try {
+      result = await generateText({
+        model: openrouter(model),
+        system: systemPrompt,
+        prompt: question,
+        temperature: 0.1,
+      });
+    } catch (aiErr: any) {
+      const errMsg = extractErrorMessage(aiErr);
+      console.error(`[CHAT /ask-upload] OpenRouter generateText failed:`, errMsg);
+      console.error(`[CHAT /ask-upload] Full error:`, aiErr);
+      return res.status(502).json({
+        success: false,
+        error: `AI service error: ${errMsg}`,
+      });
+    }
 
     const rawText = result.text.trim();
     let jsonStr = rawText;
@@ -954,6 +965,7 @@ RULES:
     try {
       parsed = JSON.parse(jsonStr);
     } catch (e) {
+      console.error(`[CHAT /ask-upload] AI returned invalid JSON. Raw (first 500 chars):`, jsonStr.slice(0, 500));
       return res.status(400).json({
         success: false,
         error: `AI returned invalid JSON: ${String(e)}`,
@@ -978,7 +990,10 @@ RULES:
       columns,
     });
   } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message || String(err) });
+    const errMsg = extractErrorMessage(err);
+    console.error(`[CHAT /ask-upload] Unhandled error:`, errMsg);
+    console.error(`[CHAT /ask-upload] Stack:`, err.stack || err);
+    return res.status(500).json({ success: false, error: errMsg });
   }
 });
 
