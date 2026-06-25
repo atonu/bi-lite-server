@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import { AsyncLocalStorage } from "async_hooks";
+import { MongoClient } from "mongodb";
 
 // ---------------------------------------------------------------------------
 // Config
@@ -54,8 +55,131 @@ if (isVercel && DATA_DIR === "/tmp/storage") {
   }
 }
 
-// Run default database migration
-migrateDefaultUserData();
+// ---------------------------------------------------------------------------
+// MongoDB Persistence Engine for Vercel
+// ---------------------------------------------------------------------------
+const mongoUri = process.env.MONGODB_URI || "";
+let mongoClient: MongoClient | null = null;
+
+async function getMongoClientInstance(): Promise<MongoClient> {
+  if (mongoClient) return mongoClient;
+  try {
+    mongoClient = new MongoClient(mongoUri);
+    await mongoClient.connect();
+    return mongoClient;
+  } catch (err) {
+    console.error(`[json-db] Failed to connect to MongoDB at ${mongoUri}:`, err);
+    throw err;
+  }
+}
+
+// Background sync queue to ensure sequential uploads per collection/user
+const syncQueue = new Map<string, Promise<void>>();
+
+function queueMongoSync(collection: string, data: any[], userId: string | null): void {
+  const syncKey = `${collection}::${userId || "system"}`;
+  const currentPromise = syncQueue.get(syncKey) || Promise.resolve();
+
+  const nextPromise = currentPromise.then(async () => {
+    try {
+      const client = await getMongoClientInstance();
+      const db = client.db();
+      const col = db.collection(collection);
+
+      if (SYSTEM_COLLECTIONS.includes(collection) || collection === "mappings") {
+        // Clear all and insert new
+        await col.deleteMany({});
+        if (data.length > 0) {
+          await col.insertMany(data);
+        }
+      } else {
+        const uId = userId || "default";
+        // Clear for this user and insert new
+        await col.deleteMany({ userId: uId });
+        if (data.length > 0) {
+          const docs = data.map((d) => ({ ...d, userId: uId }));
+          await col.insertMany(docs);
+        }
+      }
+    } catch (err) {
+      console.error(`[json-db] Mongo background sync failed for key ${syncKey}:`, err);
+    }
+  });
+
+  syncQueue.set(syncKey, nextPromise);
+  nextPromise.finally(() => {
+    if (syncQueue.get(syncKey) === nextPromise) {
+      syncQueue.delete(syncKey);
+    }
+  });
+}
+
+async function syncFromMongoOnStartup(): Promise<void> {
+  try {
+    console.log("[json-db] Vercel environment detected. Pre-populating local /tmp/storage from MongoDB...");
+    const client = await getMongoClientInstance();
+    const db = client.db();
+
+    const collectionsToSync = [
+      "users", "prospect_users", "organizations", "mappings",
+      "database_connections", "query_jobs", "query_job_results",
+      "user_templates", "chat_sessions", "chat_messages", "schema_metadata"
+    ];
+
+    for (const name of collectionsToSync) {
+      const collections = await db.listCollections({ name }).toArray();
+      if (collections.length === 0) continue;
+
+      const docs = await db.collection(name).find({}).toArray();
+      const cleanDocs = docs.map(({ _id, ...rest }) => rest);
+
+      if (SYSTEM_COLLECTIONS.includes(name) || name === "mappings") {
+        const fp = getCollectionPath(name, "");
+        let dataToSave: any = cleanDocs;
+        if (name === "mappings") {
+          dataToSave = cleanDocs.length > 0 ? cleanDocs[0] : { connections: {}, jobs: {}, sessions: {} };
+        }
+        fs.mkdirSync(path.dirname(fp), { recursive: true });
+        fs.writeFileSync(fp, JSON.stringify(dataToSave, null, 2), "utf-8");
+        cache.set(fp, dataToSave);
+      } else {
+        // Group by userId
+        const userGroups = new Map<string, any[]>();
+        for (const doc of cleanDocs) {
+          const uId = doc.userId || "default";
+          if (!userGroups.has(uId)) {
+            userGroups.set(uId, []);
+          }
+          const { userId, ...originalDoc } = doc;
+          userGroups.get(uId)!.push(originalDoc);
+        }
+
+        // Save each group
+        for (const [uId, userDocs] of userGroups.entries()) {
+          const fp = getCollectionPath(name, uId);
+          fs.mkdirSync(path.dirname(fp), { recursive: true });
+          fs.writeFileSync(fp, JSON.stringify(userDocs, null, 2), "utf-8");
+          cache.set(fp, userDocs);
+        }
+      }
+    }
+    console.log("[json-db] Local /tmp/storage pre-population from MongoDB complete.");
+  } catch (err) {
+    console.error("[json-db] Failed to pre-populate local storage from MongoDB on startup:", err);
+  }
+}
+
+export async function waitForPendingMongoSyncs(): Promise<void> {
+  while (syncQueue.size > 0) {
+    const promises = Array.from(syncQueue.values());
+    await Promise.allSettled(promises);
+  }
+}
+
+// Run default database migration (skip initial run on Vercel as we need to populate from MongoDB first)
+if (!isVercel) {
+  migrateDefaultUserData();
+}
 
 
 // ---------------------------------------------------------------------------
@@ -94,6 +218,10 @@ function writeMappings(mappings: Mappings): void {
   const tmp = filePath + ".tmp";
   fs.writeFileSync(tmp, JSON.stringify(mappings, null, 2), "utf-8");
   fs.renameSync(tmp, filePath);
+
+  if (isVercel) {
+    queueMongoSync("mappings", [mappings], null);
+  }
 }
 
 function updateMapping(type: "connections" | "jobs" | "sessions", id: string, userId: string): void {
@@ -120,7 +248,7 @@ function migrateDefaultUserData() {
     }
 
     const users = JSON.parse(fs.readFileSync(usersFile, "utf-8")) as any[];
-    
+
     // Map organization_id -> userId
     const orgToUser = new Map<string, string>();
     for (const u of users) {
@@ -145,8 +273,8 @@ function migrateDefaultUserData() {
           if (!fs.existsSync(userConnsDir)) {
             fs.mkdirSync(userConnsDir, { recursive: true });
           }
-          const userConns = fs.existsSync(userConnsPath) 
-            ? JSON.parse(fs.readFileSync(userConnsPath, "utf-8")) 
+          const userConns = fs.existsSync(userConnsPath)
+            ? JSON.parse(fs.readFileSync(userConnsPath, "utf-8"))
             : [];
           if (!userConns.some((c: any) => c.id === conn.id)) {
             userConns.push(conn);
@@ -341,7 +469,7 @@ function getCollectionPath(collection: string, userId: string): string {
 // ---------------------------------------------------------------------------
 // In-memory Cache & Atomic Write System
 // ---------------------------------------------------------------------------
-const cache = new Map<string, any[]>();
+const cache = new Map<string, any>();
 
 function readCollection(collection: string, userId: string): any[] {
   const fp = getCollectionPath(collection, userId);
@@ -371,6 +499,10 @@ function writeCollection(collection: string, data: any[], userId: string): void 
   const tmp = fp + ".tmp";
   fs.writeFileSync(tmp, JSON.stringify(data, null, 2), "utf-8");
   fs.renameSync(tmp, fp);
+
+  if (isVercel) {
+    queueMongoSync(collection, data, userId);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -439,7 +571,7 @@ function matchesFilter(doc: any, filter: Filter): boolean {
 // Collection class
 // ---------------------------------------------------------------------------
 export class Collection {
-  constructor(private name: string) {}
+  constructor(private name: string) { }
 
   /** Generate a new unique ID */
   static newId(): string {
@@ -619,8 +751,15 @@ export interface JsonDb {
 }
 
 let _db: JsonDb | null = null;
+let isSyncedFromMongo = false;
 
 export async function getControlDb(): Promise<JsonDb> {
+  debugger
+  if (isVercel && !isSyncedFromMongo) {
+    isSyncedFromMongo = true;
+    await syncFromMongoOnStartup();
+    migrateDefaultUserData();
+  }
   if (_db) return _db;
   _db = {
     collection: (name: string) => getCollection(name),

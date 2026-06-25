@@ -9,7 +9,7 @@ import swaggerUi from "swagger-ui-express";
 dotenv.config({ path: path.join(__dirname, "../.env") });
 dotenv.config({ path: path.join(__dirname, "../../.env") });
 
-import { getControlDb, newId, userContextStorage } from "./json-db";
+import { getControlDb, newId, userContextStorage, waitForPendingMongoSyncs } from "./json-db";
 import { runIntrospection, introspectTransientSchema } from "./introspection";
 import { getPgPool, getMongoClient } from "./pool-manager";
 import { swaggerDocument } from "./swagger-spec";
@@ -52,6 +52,42 @@ app.use(
 );
 app.use(express.json({ limit: "50mb" }));
 app.use(cookieParser());
+
+// On Vercel, intercept response sending to block until all pending MongoDB background writes have been flushed
+if (process.env.VERCEL === "1") {
+  app.use((req, res, next) => {
+    const originalSend = res.send;
+    const originalJson = res.json;
+    const originalEnd = res.end;
+
+    let isSending = false;
+    const waitAndSend = async (fn: Function, ...args: any[]) => {
+      if (isSending) return;
+      isSending = true;
+      try {
+        await waitForPendingMongoSyncs();
+      } catch (err) {
+        console.error("[json-db] Error waiting for pending MongoDB syncs before sending response:", err);
+      }
+      return fn.apply(res, args);
+    };
+
+    res.send = function(...args: any[]) {
+      waitAndSend(originalSend, ...args);
+      return res;
+    } as any;
+    res.json = function(...args: any[]) {
+      waitAndSend(originalJson, ...args);
+      return res;
+    } as any;
+    res.end = function(...args: any[]) {
+      waitAndSend(originalEnd, ...args);
+      return res;
+    } as any;
+
+    next();
+  });
+}
 
 // Serve Swagger UI API documentation
 app.get("/api-docs/json", (req, res) => {
@@ -269,9 +305,9 @@ app.post("/api/query/execute", authMiddleware, async (req, res) => {
       updatedAt: new Date().toISOString(),
     });
 
-    // Start background worker, do not await it
+    // Start background worker
     const { startQueryJob } = require("./query-job");
-    startQueryJob(jobId, {
+    const jobPromise = startQueryJob(jobId, {
       connectionId,
       engine: conn.engine,
       query,
@@ -279,6 +315,10 @@ app.post("/api/query/execute", authMiddleware, async (req, res) => {
     }).catch((err: any) => {
       console.error(`Background worker failed for job ${jobId}:`, err);
     });
+
+    if (process.env.VERCEL === "1") {
+      await jobPromise;
+    }
 
     return res.json({ success: true, jobId });
   } catch (err: any) {
