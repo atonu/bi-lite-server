@@ -9,7 +9,7 @@ import swaggerUi from "swagger-ui-express";
 dotenv.config({ path: path.join(__dirname, "../.env") });
 dotenv.config({ path: path.join(__dirname, "../../.env") });
 
-import { getControlDb, newId } from "./json-db";
+import { getControlDb, newId, userContextStorage } from "./json-db";
 import { runIntrospection, introspectTransientSchema } from "./introspection";
 import { getPgPool, getMongoClient } from "./pool-manager";
 import { swaggerDocument } from "./swagger-spec";
@@ -106,9 +106,12 @@ const authMiddleware = (req: any, res: any, next: any) => {
   }
 
   try {
-    const decoded = jwt.verify(token, BACKEND_SECRET);
+    const decoded = jwt.verify(token, BACKEND_SECRET) as any;
     req.user = decoded;
-    next();
+    const userId = decoded.id || decoded.userId;
+    userContextStorage.run({ userId, organizationId: decoded.organizationId }, () => {
+      next();
+    });
   } catch (err) {
     return res.status(403).json({ error: "Invalid or expired authorization token." });
   }
