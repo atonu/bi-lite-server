@@ -7,7 +7,7 @@ export const swaggerDocument = {
   },
   servers: [
     {
-      url: "http://localhost:3002",
+      url: "https://bi-lite-server.vercel.app",
       description: "Local Development Server",
     },
   ],
