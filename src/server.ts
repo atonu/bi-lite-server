@@ -53,35 +53,27 @@ app.use(
 app.use(express.json({ limit: "50mb" }));
 app.use(cookieParser());
 
-// On Vercel, intercept response sending to block until all pending MongoDB background writes have been flushed
+// On Vercel, intercept response ending to block until all pending MongoDB background writes have been flushed
 if (process.env.VERCEL === "1") {
   app.use((req, res, next) => {
-    const originalSend = res.send;
-    const originalJson = res.json;
     const originalEnd = res.end;
+    let isEnding = false;
 
-    let isSending = false;
-    const waitAndSend = async (fn: Function, ...args: any[]) => {
-      if (isSending) return;
-      isSending = true;
-      try {
-        await waitForPendingMongoSyncs();
-      } catch (err) {
-        console.error("[json-db] Error waiting for pending MongoDB syncs before sending response:", err);
-      }
-      return fn.apply(res, args);
-    };
-
-    res.send = function(...args: any[]) {
-      waitAndSend(originalSend, ...args);
-      return res;
-    } as any;
-    res.json = function(...args: any[]) {
-      waitAndSend(originalJson, ...args);
-      return res;
-    } as any;
     res.end = function(...args: any[]) {
-      waitAndSend(originalEnd, ...args);
+      if (isEnding) {
+        return originalEnd.apply(res, args as any);
+      }
+      isEnding = true;
+
+      waitForPendingMongoSyncs()
+        .then(() => {
+          originalEnd.apply(res, args as any);
+        })
+        .catch((err) => {
+          console.error("[json-db] Error waiting for pending MongoDB syncs before ending response:", err);
+          originalEnd.apply(res, args as any);
+        });
+
       return res;
     } as any;
 

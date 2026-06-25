@@ -173,6 +173,8 @@ export async function waitForPendingMongoSyncs(): Promise<void> {
   while (syncQueue.size > 0) {
     const promises = Array.from(syncQueue.values());
     await Promise.allSettled(promises);
+    // Yield control to the event loop so that background queue deletion microtasks have a chance to execute
+    await new Promise((resolve) => setTimeout(resolve, 0));
   }
 }
 
