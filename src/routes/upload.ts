@@ -10,7 +10,11 @@ const router = Router();
 // Ensure uploads directory exists
 const UPLOADS_DIR = path.join(DATA_DIR, "uploads");
 if (!fs.existsSync(UPLOADS_DIR)) {
-  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+  try {
+    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+  } catch (err) {
+    console.warn(`Warning: Could not create uploads directory at ${UPLOADS_DIR}:`, err);
+  }
 }
 
 // Configure multer for memory storage
