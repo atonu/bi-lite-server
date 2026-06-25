@@ -12,7 +12,11 @@ const DATA_DIR = process.env.DATA_DIR
 
 // Ensure data directory exists on startup
 if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  } catch (err) {
+    console.warn(`Warning: Could not create data directory at ${DATA_DIR}:`, err);
+  }
 }
 
 // ---------------------------------------------------------------------------

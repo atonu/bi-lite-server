@@ -103,6 +103,10 @@ app.use("/api/upload", authMiddleware, uploadRouter);
 // Routes
 // ---------------------------------------------------------------------------
 
+app.get("/", (req, res) => {
+  res.redirect("/api-docs");
+});
+
 app.get("/health", (req, res) => {
   res.json({ status: "healthy", timestamp: new Date() });
 });
