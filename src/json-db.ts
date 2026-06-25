@@ -8,10 +8,10 @@ import { randomUUID } from "crypto";
 
 const isVercel = process.env.VERCEL === "1";
 const DEFAULT_DATA_DIR = path.join(__dirname, "..", "data");
-const DATA_DIR = process.env.DATA_DIR
-  ? path.resolve(process.env.DATA_DIR)
-  : isVercel
-    ? "/tmp/data"
+const DATA_DIR = isVercel
+  ? "/tmp/data"
+  : process.env.DATA_DIR
+    ? path.resolve(process.env.DATA_DIR)
     : DEFAULT_DATA_DIR;
 
 // Ensure data directory exists on startup
