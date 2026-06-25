@@ -13,6 +13,7 @@ import { getControlDb, newId } from "./json-db";
 import { runIntrospection, introspectTransientSchema } from "./introspection";
 import { getPgPool, getMongoClient } from "./pool-manager";
 import { swaggerDocument } from "./swagger-spec";
+import { ALLOWED_DOMAIN_SUFFIX } from "./constants";
 
 import cookieParser from "cookie-parser";
 import authRouter from "./routes/auth";
@@ -26,7 +27,29 @@ const app = express();
 const PORT = process.env.BACKEND_PORT || 3002;
 const BACKEND_SECRET = process.env.BACKEND_SECRET || "bi-lite-backend-secret-key-super-secure-87654321";
 
-app.use(cors({ origin: process.env.FRONTEND_URL || "http://localhost:3000", credentials: true }));
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+].filter(Boolean) as string[];
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps, curl, or server-to-server)
+      if (!origin) return callback(null, true);
+
+      const isLocalhost = origin.startsWith("http://localhost:") || origin.startsWith("http://127.0.0.1:");
+      const isVercelSubdomain = origin.endsWith(ALLOWED_DOMAIN_SUFFIX);
+      const isAllowedOrigin = allowedOrigins.includes(origin);
+
+      if (isLocalhost || isVercelSubdomain || isAllowedOrigin) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
+    credentials: true,
+  })
+);
 app.use(express.json({ limit: "50mb" }));
 app.use(cookieParser());
 
