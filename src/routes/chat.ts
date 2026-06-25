@@ -54,7 +54,7 @@ function extractErrorMessage(err: any): string {
       if (body?.error?.message) {
         messages.push(body.error.message);
       }
-    } catch {}
+    } catch { }
   }
 
   // Check for data property (some AI SDK errors have this)
@@ -804,6 +804,101 @@ router.post("/generate-title", async (req: any, res: Response) => {
   } catch (err: any) {
     console.error(`[CHAT /generate-title] Unhandled error:`, extractErrorMessage(err));
     return res.status(500).json({ error: extractErrorMessage(err) });
+  }
+});
+
+/**
+ * POST /api/chat/ask-upload
+ * Answer a question about uploaded CSV/JSON data using AI.
+ */
+router.post("/ask-upload", async (req: any, res: Response) => {
+  try {
+    const { uploadId, question, model: requestedModel, columns, sampleRows } = req.body;
+    const model = requestedModel || DEFAULT_MODEL;
+
+    if (!question || !columns || !sampleRows) {
+      return res.status(400).json({ success: false, error: "Missing required parameters." });
+    }
+
+    const dataSchema = `UPLOADED DATA COLUMNS:\n${columns.join(", ")}\n\nSAMPLE ROWS (first 5):\n${JSON.stringify(sampleRows.slice(0, 5), null, 2)}`;
+
+    const systemPrompt = `You are a data analyst. The user has uploaded a dataset. Analyze the data and answer their question.
+
+${dataSchema}
+
+Respond with a JSON object:
+{
+  "chartType": "TABLE" | "BAR" | "LINE" | "DONUT" | "AREA" | "SCATTER",
+  "chartTitle": "<concise title, max 60 chars>",
+  "xAxisKey": "<column name for X axis>",
+  "yAxisKey": "<column name for Y axis>",
+  "yAxisKeys": ["<optional additional Y axis columns>"],
+  "reasoning": "<1-2 sentence explanation>",
+  "filteredRows": [<array of row objects to display — max 500 rows, filtered/aggregated if needed>]
+}
+
+RULES:
+- Use EXACT column names from the data
+- For aggregation questions, compute the aggregation in filteredRows
+- filteredRows must be a valid JSON array of objects
+- Respond with ONLY the JSON, no extra text`;
+
+    let result;
+    try {
+      result = await generateText({
+        model: openrouter(model),
+        system: systemPrompt,
+        prompt: question,
+        temperature: 0.1,
+      });
+    } catch (aiErr: any) {
+      const errMsg = extractErrorMessage(aiErr);
+      console.error(`[CHAT /ask-upload] OpenRouter generateText failed:`, errMsg);
+      console.error(`[CHAT /ask-upload] Full error:`, aiErr);
+      return res.status(502).json({
+        success: false,
+        error: `AI service error: ${errMsg}`,
+      });
+    }
+
+    const rawText = result.text.trim();
+    let jsonStr = rawText;
+    const fenceMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (fenceMatch) jsonStr = fenceMatch[1].trim();
+
+    let parsed: any;
+    try {
+      parsed = JSON.parse(jsonStr);
+    } catch (e) {
+      console.error(`[CHAT /ask-upload] AI returned invalid JSON. Raw (first 500 chars):`, jsonStr.slice(0, 500));
+      return res.status(400).json({
+        success: false,
+        error: `AI returned invalid JSON: ${String(e)}`,
+      });
+    }
+
+    const VALID_CHART_TYPES = ["LINE", "BAR", "DONUT", "TABLE", "AREA", "SCATTER"] as const;
+    const chartType = VALID_CHART_TYPES.includes(parsed.chartType) ? parsed.chartType : "TABLE";
+
+    return res.json({
+      success: true,
+      response: {
+        sql: `upload:${uploadId}`,
+        chartType,
+        chartTitle: parsed.chartTitle || "Data Analysis",
+        xAxisKey: parsed.xAxisKey || columns[0],
+        yAxisKey: parsed.yAxisKey || columns[1] || columns[0],
+        yAxisKeys: Array.isArray(parsed.yAxisKeys) ? parsed.yAxisKeys : undefined,
+        reasoning: parsed.reasoning || "",
+      },
+      rows: parsed.filteredRows || sampleRows,
+      columns,
+    });
+  } catch (err: any) {
+    const errMsg = extractErrorMessage(err);
+    console.error(`[CHAT /ask-upload] Unhandled error:`, errMsg);
+    console.error(`[CHAT /ask-upload] Stack:`, err.stack || err);
+    return res.status(500).json({ success: false, error: errMsg });
   }
 });
 
