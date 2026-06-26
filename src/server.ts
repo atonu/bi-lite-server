@@ -137,7 +137,13 @@ const authMiddleware = (req: any, res: any, next: any) => {
   try {
     const decoded = jwt.verify(token, BACKEND_SECRET) as any;
     req.user = decoded;
-    const userId = decoded.id || decoded.userId;
+    
+    // Normalize user ID to ensure id is always present
+    if (req.user && !req.user.id && req.user.userId) {
+      req.user.id = req.user.userId;
+    }
+
+    const userId = req.user.id;
     userContextStorage.run({ userId, organizationId: decoded.organizationId }, () => {
       next();
     });
