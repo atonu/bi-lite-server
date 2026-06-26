@@ -3,9 +3,10 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import nodemailer from "nodemailer";
 import crypto from "crypto";
-import { getControlDb, newId } from "../json-db";
+import { getControlDb, newId, userContextStorage } from "../json-db";
 import { ACCESS_TOKEN_EXPIRY, REFRESH_TOKEN_EXPIRY } from "../constants";
 import { getFrontendUrl } from "../utils";
+import { encryptPassword } from "../crypto-helper";
 
 const router = Router();
 
@@ -38,6 +39,12 @@ router.post("/register", async (req, res) => {
       return res.status(400).json({ error: "User already exists." });
     }
 
+    // Get prospect user info if prospectId is provided
+    let prospectUser = null;
+    if (prospectId) {
+      prospectUser = db.collection("prospect_users").findOne({ id: prospectId });
+    }
+
     const hashedPassword = await bcrypt.hash(password, 10);
     const orgId = newId();
     const userId = newId();
@@ -63,6 +70,116 @@ router.post("/register", async (req, res) => {
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     });
+
+    // Add database connections if user was onboarded with them
+    if (prospectUser && Array.isArray(prospectUser.database)) {
+      userContextStorage.run({ userId: userId, organizationId: orgId }, () => {
+        const connColl = db.collection("database_connections");
+        const schemaColl = db.collection("schema_metadata");
+
+        for (const dbConn of prospectUser.database) {
+          const creds = {
+            alias: dbConn.alias,
+            engine: dbConn.engine,
+            host: dbConn.host,
+            port: dbConn.port,
+            dbName: dbConn.dbName,
+            dbUser: dbConn.dbUser,
+            password: dbConn.password,
+            sslEnabled: dbConn.sslEnabled,
+            connectionUri: dbConn.connectionUri,
+          };
+
+          let encryptedPassword: string | null = null;
+          let encryptedUri: string | null = null;
+
+          if (creds.engine === "MONGODB") {
+            let uriToEncrypt = creds.connectionUri;
+            if (uriToEncrypt === "mongodb+srv://********************************************************") {
+              uriToEncrypt = process.env.SAMPLE_DATASET_URI || "";
+            }
+            if (uriToEncrypt) {
+              encryptedUri = encryptPassword(uriToEncrypt);
+            }
+          } else {
+            if (creds.password) {
+              encryptedPassword = encryptPassword(creds.password);
+            }
+          }
+
+          // Calculate unique key
+          const rawKey =
+            creds.engine === "MONGODB"
+              ? `MONGODB::${creds.connectionUri ?? ""}`
+              : `${creds.engine}::${creds.host ?? ""}::${creds.port ?? ""}::${creds.dbName ?? ""}::${creds.dbUser ?? ""}`;
+          const uniqueKey = crypto.createHash("sha256").update(rawKey).digest("hex");
+
+          // Check if connection already exists in this org
+          const existing = connColl.findOne({
+            unique_key: uniqueKey,
+            organization_id: orgId,
+          });
+
+          if (!existing) {
+            let resolvedDbName = creds.dbName ?? null;
+            if (creds.engine === "MONGODB" && !resolvedDbName && creds.connectionUri) {
+              try {
+                const url = new URL(
+                  creds.connectionUri
+                    .replace("mongodb+srv://", "https://")
+                    .replace("mongodb://", "http://")
+                );
+                const pathDb = url.pathname.replace(/^\//, "").split("?")[0];
+                if (pathDb) resolvedDbName = pathDb;
+              } catch {
+                // ignore parse errors
+              }
+            }
+
+            const connectionId = newId();
+
+            connColl.insertOne({
+              id: connectionId,
+              alias: creds.alias,
+              engine: creds.engine,
+              host: creds.host ?? null,
+              port: creds.port ?? null,
+              db_name: resolvedDbName,
+              db_user: creds.dbUser ?? null,
+              encrypted_password: encryptedPassword,
+              ssl_enabled: creds.sslEnabled ?? false,
+              encrypted_uri: encryptedUri,
+              unique_key: uniqueKey,
+              status: "CONNECTED",
+              last_tested_at: new Date().toISOString(),
+              organization_id: orgId,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            });
+
+            // Seed default schema metadata for provided tables
+            if (dbConn.tables && Array.isArray(dbConn.tables)) {
+              const columnsToInsert = dbConn.tables.map((tableName: string, index: number) => ({
+                table_schema: creds.engine === "MONGODB" ? "public" : (creds.dbName || "public"),
+                table_name: tableName,
+                column_name: "id",
+                data_type: "VARCHAR",
+                is_nullable: false,
+                is_primary_key: true,
+                column_default: null,
+                ordinal_position: 1,
+                connection_id: connectionId,
+                introspected_at: new Date().toISOString(),
+              }));
+
+              if (columnsToInsert.length > 0) {
+                schemaColl.insertMany(columnsToInsert);
+              }
+            }
+          }
+        }
+      });
+    }
 
     // Clean up prospect user if this was an onboarding flow
     if (prospectId) {
