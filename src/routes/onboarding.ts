@@ -1,10 +1,9 @@
 import { Router } from "express";
 import { getControlDb, newId } from "../json-db";
 import { LINK_EXPIRY } from "../constants";
+import { getFrontendUrl } from "../utils";
 
 const router = Router();
-
-const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
 
 /**
  * POST /api/onboard
@@ -30,7 +29,7 @@ router.post("/", async (req, res) => {
     // Check if user already exists
     const existingUser = usersColl.findOne({ email: normalizedEmail });
     if (existingUser) {
-      const loginUrl = `${FRONTEND_URL}/signin?email=${encodeURIComponent(normalizedEmail)}`;
+      const loginUrl = `${getFrontendUrl(req)}/signin?email=${encodeURIComponent(normalizedEmail)}`;
       return res.json({
         existingUser: true,
         loginUrl,
@@ -57,7 +56,7 @@ router.post("/", async (req, res) => {
       });
     }
 
-    const setPasswordUrl = `${FRONTEND_URL}/set-password/${prospectId}`;
+    const setPasswordUrl = `${getFrontendUrl(req)}/set-password/${prospectId}`;
     return res.json({
       existingUser: false,
       setPasswordUrl,

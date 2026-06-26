@@ -3,6 +3,7 @@ import { generateText } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import * as z from "zod";
 import { getControlDb, newId } from "../json-db";
+import { primaryFrontendUrl } from "../utils";
 const router = Router();
 
 // ---------------------------------------------------------------------------
@@ -19,7 +20,7 @@ const openrouter = createOpenAI({
   baseURL: "https://openrouter.ai/api/v1",
   apiKey: OPENROUTER_API_KEY,
   headers: {
-    "HTTP-Referer": process.env.FRONTEND_URL || "http://localhost:3000",
+    "HTTP-Referer": primaryFrontendUrl,
     "X-Title": "BI-Lite",
   },
 });

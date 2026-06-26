@@ -5,6 +5,7 @@ import nodemailer from "nodemailer";
 import crypto from "crypto";
 import { getControlDb, newId } from "../json-db";
 import { ACCESS_TOKEN_EXPIRY, REFRESH_TOKEN_EXPIRY } from "../constants";
+import { getFrontendUrl } from "../utils";
 
 const router = Router();
 
@@ -188,7 +189,7 @@ router.post("/forgot-password", async (req, res) => {
       { $set: { reset_token: resetToken, reset_token_expiry: resetTokenExpiry } }
     );
 
-    const resetLink = `${process.env.FRONTEND_URL || "http://localhost:3000"}/reset-password?token=${resetToken}`;
+    const resetLink = `${getFrontendUrl(req)}/reset-password?token=${resetToken}`;
 
     if (process.env.SMTP_USER) {
       await transporter.sendMail({

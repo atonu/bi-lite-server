@@ -27,9 +27,10 @@ const app = express();
 const PORT = process.env.BACKEND_PORT || 3002;
 const BACKEND_SECRET = process.env.BACKEND_SECRET || "bi-lite-backend-secret-key-super-secure-87654321";
 
-const allowedOrigins = [
-  process.env.FRONTEND_URL,
-].filter(Boolean) as string[];
+const allowedOrigins = (process.env.FRONTEND_URL || "")
+  .split(",")
+  .map((origin) => origin.trim().replace(/\/$/, ""))
+  .filter(Boolean);
 
 app.use(
   cors({
