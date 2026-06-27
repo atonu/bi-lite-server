@@ -54,41 +54,6 @@ app.use(
 app.use(express.json({ limit: "50mb" }));
 app.use(cookieParser());
 
-// Intercept JSON responses to enforce a common API response body for success/errors
-app.use((req, res, next) => {
-  const originalJson = res.json;
-
-  res.json = function(body: any) {
-    const isErrorStatus = res.statusCode >= 400;
-    const hasErrorField = body && (body.error !== undefined || body.errors !== undefined || body.success === false);
-
-    if (isErrorStatus || hasErrorField) {
-      body = body || {};
-      body.success = false;
-
-      if (body.error && !body.errors) {
-        body.errors = Array.isArray(body.error) ? body.error : [body.error];
-        if (Array.isArray(body.error)) {
-          body.error = body.error[0] || "An error occurred.";
-        }
-      } else if (body.errors && !body.error) {
-        body.error = Array.isArray(body.errors) ? (body.errors[0] || "An error occurred.") : body.errors;
-        if (!Array.isArray(body.errors)) {
-          body.errors = [body.errors];
-        }
-      } else if (!body.error && !body.errors) {
-        const defaultMsg = body.message || "An unexpected error occurred.";
-        body.error = defaultMsg;
-        body.errors = [defaultMsg];
-      }
-    }
-
-    return originalJson.call(this, body);
-  };
-
-  next();
-});
-
 // On Vercel, intercept response ending to block until all pending MongoDB background writes have been flushed
 if (process.env.VERCEL === "1") {
   app.use((req, res, next) => {
@@ -429,28 +394,6 @@ app.get("/api/query/results/:jobId", authMiddleware, async (req, res) => {
     console.error(`[QUERY /results/${req.params.jobId}] Error:`, err.message || err);
     return res.status(500).json({ success: false, error: err.message || String(err) });
   }
-});
-
-// Global JSON error handler middleware to prevent HTML error responses
-app.use((err: any, req: any, res: any, next: any) => {
-  console.error("Unhandled server error:", err);
-  const status = err.status || err.statusCode || 500;
-  const message = err.message || "Internal server error.";
-
-  // If it's a JSON parsing error from express.json()
-  if (err instanceof SyntaxError && "body" in err) {
-    return res.status(400).json({
-      success: false,
-      error: "Invalid JSON payload.",
-      errors: ["Invalid JSON payload."]
-    });
-  }
-
-  return res.status(status).json({
-    success: false,
-    error: message,
-    errors: [message]
-  });
 });
 
 app.listen(PORT, () => {

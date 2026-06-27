@@ -9,9 +9,7 @@ const router = Router();
  */
 router.get("/", async (req: any, res: Response) => {
   try {
-    console.log("[TEMPLATES GET] Authorization Header:", req.headers.authorization);
-    console.log("[TEMPLATES GET] req.user:", req.user);
-    const userId = req.user?.id || req.user?.userId || req.user?.sub;
+    const userId = req.user.id;
     if (!userId) return res.status(400).json({ error: "Missing user context." });
 
     const db = await getControlDb();
@@ -40,7 +38,7 @@ router.get("/", async (req: any, res: Response) => {
  */
 router.post("/", async (req: any, res: Response) => {
   try {
-    const userId = req.user?.id || req.user?.userId || req.user?.sub;
+    const userId = req.user.id;
     const { text } = req.body;
 
     if (!userId) return res.status(400).json({ error: "Missing user context." });
@@ -71,7 +69,7 @@ router.post("/", async (req: any, res: Response) => {
  */
 router.put("/:id", async (req: any, res: Response) => {
   try {
-    const userId = req.user?.id || req.user?.userId || req.user?.sub;
+    const userId = req.user.id;
     const { id } = req.params;
     const { text } = req.body;
 
@@ -103,7 +101,7 @@ router.put("/:id", async (req: any, res: Response) => {
  */
 router.delete("/:id", async (req: any, res: Response) => {
   try {
-    const userId = req.user?.id || req.user?.userId || req.user?.sub;
+    const userId = req.user.id;
     const { id } = req.params;
 
     if (!userId) return res.status(400).json({ error: "Missing user context." });

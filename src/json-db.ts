@@ -131,11 +131,7 @@ async function syncFromMongoOnStartup(): Promise<void> {
       if (collections.length === 0) continue;
 
       const docs = await db.collection(name).find({}).toArray();
-      const cleanDocs = docs.map((doc: any) => {
-        const { _id, ...rest } = doc;
-        const id = rest.id || _id.toString();
-        return { id, ...rest };
-      });
+      const cleanDocs = docs.map(({ _id, ...rest }) => rest);
 
       if (SYSTEM_COLLECTIONS.includes(name) || name === "mappings") {
         const fp = getCollectionPath(name, "");
