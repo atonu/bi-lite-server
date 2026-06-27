@@ -362,6 +362,7 @@ export const swaggerDocument = {
                 properties: {
                   name: { type: "string", example: "Alice Smith" },
                   email: { type: "string", format: "email", example: "alice@email.com" },
+                  siteUrl: { type: "string", format: "uri", description: "Optional site URL to target for generated redirection URL", example: "http://localhost:3000" },
                   database: {
                     type: "array",
                     nullable: true,

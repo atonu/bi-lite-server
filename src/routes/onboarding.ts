@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { getControlDb, newId } from "../json-db";
 import { LINK_EXPIRY } from "../constants";
-import { getFrontendUrl } from "../utils";
+import { getFrontendUrl, allowedOrigins } from "../utils";
 
 const router = Router();
 
@@ -105,13 +105,37 @@ export function normalizeDatabaseConnection(db: any) {
  */
 router.post("/", async (req, res) => {
   try {
-    const { name, email, database } = req.body;
+    const { name, email, database, siteUrl } = req.body;
 
     if (!name || !email) {
       return res.status(400).json({ error: "name and email are required." });
     }
 
     const normalizedEmail = email.toLowerCase().trim();
+
+    let targetBaseUrl = getFrontendUrl(req);
+    if (siteUrl) {
+      try {
+        const siteUrlParsed = new URL(siteUrl);
+        const siteHost = siteUrlParsed.host.toLowerCase();
+        const isAllowed = allowedOrigins.some((allowed) => {
+          try {
+            const allowedHost = allowed.startsWith("http://") || allowed.startsWith("https://")
+              ? new URL(allowed).host
+              : allowed;
+            return allowedHost.toLowerCase() === siteHost;
+          } catch {
+            return false;
+          }
+        });
+        if (!isAllowed) {
+          return res.status(400).json({ error: "siteUrl is not an allowed origin." });
+        }
+        targetBaseUrl = siteUrlParsed.origin;
+      } catch {
+        return res.status(400).json({ error: "Invalid siteUrl format." });
+      }
+    }
 
     let normalizedDatabases: any[] = [];
     if (database !== undefined && database !== null) {
@@ -133,7 +157,7 @@ router.post("/", async (req, res) => {
     // Check if user already exists
     const existingUser = usersColl.findOne({ email: normalizedEmail });
     if (existingUser) {
-      const loginUrl = `${getFrontendUrl(req)}/signin?email=${encodeURIComponent(normalizedEmail)}`;
+      const loginUrl = `${targetBaseUrl}/signin?email=${encodeURIComponent(normalizedEmail)}`;
       return res.json({
         existingUser: true,
         redirectionUrl: loginUrl,
@@ -161,7 +185,7 @@ router.post("/", async (req, res) => {
       });
     }
 
-    const setPasswordUrl = `${getFrontendUrl(req)}/set-password/${prospectId}`;
+    const setPasswordUrl = `${targetBaseUrl}/set-password/${prospectId}`;
     return res.json({
       existingUser: false,
       redirectionUrl: setPasswordUrl,
