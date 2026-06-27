@@ -462,6 +462,49 @@ export const swaggerDocument = {
         },
       },
     },
+    "/api/onboard/prospect/delete-by-emails": {
+      post: {
+        tags: ["Onboarding"],
+        summary: "Delete prospect users by email list",
+        description: "Deletes pending prospect users associated with the provided email addresses.",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["emails"],
+                properties: {
+                  emails: {
+                    type: "array",
+                    items: { type: "string", format: "email" },
+                    example: ["alice@email.com", "bob@email.com"]
+                  }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          200: {
+            description: "Prospects deleted successfully",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    success: { type: "boolean", example: true },
+                    deletedCount: { type: "integer", example: 2 },
+                    message: { type: "string", example: "2 prospect user(s) deleted successfully." }
+                  }
+                }
+              }
+            }
+          },
+          400: { description: "Invalid request payload" }
+        }
+      }
+    },
 
     // -------------------------------------------------------------------------
     // Connections

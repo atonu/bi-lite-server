@@ -2,6 +2,26 @@ import { Router } from "express";
 import { getControlDb, newId } from "../json-db";
 import { LINK_EXPIRY } from "../constants";
 import { getFrontendUrl, allowedOrigins } from "../utils";
+import jwt from "jsonwebtoken";
+
+const BACKEND_SECRET = process.env.BACKEND_SECRET || "bi-lite-backend-secret-key-super-secure-87654321";
+
+const authMiddleware = (req: any, res: any, next: any) => {
+  const authHeader = req.headers.authorization;
+  const token = authHeader && authHeader.split(" ")[1];
+
+  if (!token) {
+    return res.status(401).json({ error: "Missing authorization token." });
+  }
+
+  try {
+    const decoded = jwt.verify(token, BACKEND_SECRET) as any;
+    req.user = decoded;
+    next();
+  } catch (err) {
+    return res.status(403).json({ error: "Invalid or expired authorization token." });
+  }
+};
 
 const router = Router();
 
@@ -242,13 +262,43 @@ export async function deleteProspectUser(id: string) {
  * DELETE /api/onboard/prospect/:id
  * Public API to delete prospect user data / onboarding link.
  */
-router.delete("/prospect/:id", async (req, res) => {
+router.delete("/prospect/:id", authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
     await deleteProspectUser(id);
     return res.json({ success: true, message: "Prospect user / onboarding link deleted successfully." });
   } catch (err: any) {
     console.error("Prospect deletion error:", err);
+    return res.status(500).json({ error: "Internal server error." });
+  }
+});
+
+/**
+ * POST /api/onboard/prospect/delete-by-emails
+ * Public API to delete prospect users by email list.
+ */
+router.post("/prospect/delete-by-emails", authMiddleware, async (req, res) => {
+  try {
+    const { emails } = req.body;
+    if (!emails || !Array.isArray(emails)) {
+      return res.status(400).json({ error: "emails field must be an array of strings." });
+    }
+
+    const db = await getControlDb();
+    const prospectsColl = db.collection("prospect_users");
+
+    let deletedCount = 0;
+    for (const email of emails) {
+      if (typeof email === "string") {
+        const normalized = email.toLowerCase().trim();
+        const deleteRes = prospectsColl.deleteMany({ email: normalized });
+        deletedCount += deleteRes.deletedCount;
+      }
+    }
+
+    return res.json({ success: true, deletedCount, message: `${deletedCount} prospect user(s) deleted successfully.` });
+  } catch (err: any) {
+    console.error("Prospect deletion by emails error:", err);
     return res.status(500).json({ error: "Internal server error." });
   }
 });
