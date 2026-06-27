@@ -5,23 +5,127 @@ import { getFrontendUrl } from "../utils";
 
 const router = Router();
 
+export enum EngineType {
+  MONGODB = "MONGODB",
+  POSTGRESQL = "POSTGRESQL",
+  MYSQL = "MYSQL"
+}
+
+export enum EngineEnum {
+  MONGO = 0,
+  POSTGRE = 1,
+  MYSQL = 2
+}
+
+export function normalizeEngine(engineInput: any): EngineType | null {
+  if (engineInput === undefined || engineInput === null) return null;
+
+  // Handle numeric codes (either as number or string representation)
+  const val = Number(engineInput);
+  if (!isNaN(val) && engineInput !== "" && engineInput !== null && typeof engineInput !== "boolean") {
+    if (val === EngineEnum.MONGO) return EngineType.MONGODB;
+    if (val === EngineEnum.POSTGRE) return EngineType.POSTGRESQL;
+    if (val === EngineEnum.MYSQL) return EngineType.MYSQL;
+  }
+
+  // Fallback to string names
+  if (typeof engineInput === "string") {
+    const lower = engineInput.toLowerCase().trim();
+    if (lower === "mongo" || lower === "mongodb") {
+      return EngineType.MONGODB;
+    }
+    if (lower === "postgre" || lower === "postgresql") {
+      return EngineType.POSTGRESQL;
+    }
+    if (lower === "mysql") {
+      return EngineType.MYSQL;
+    }
+  }
+
+  return null;
+}
+
+export function normalizeDatabaseConnection(db: any) {
+  const engine = normalizeEngine(db.engine);
+  if (!engine) {
+    throw new Error(`Unsupported database engine: ${db.engine || "undefined"}. Must be one of 0 (mongo), 1 (postgre), 2 (mysql).`);
+  }
+
+  const alias = db.name || db.alias;
+  if (!alias) {
+    throw new Error("Database connection name/alias (name) is required.");
+  }
+
+  const connectionUri = db.connectionString || db.connectionUri || db.connection_string || null;
+  const host = db.host || db.hostname || db.hostName || null;
+  const port = db.port ? Number(db.port) : null;
+  const dbName = db.dbName || db.db_name || db.database || null;
+  const dbUser = db.dbUser || db.db_user || db.username || db.user || null;
+  const password = db.password || null;
+  const sslEnabled = db.sslEnabled === true || db.ssl === true || db.ssl_enabled === true;
+  const tables = Array.isArray(db.tables) ? db.tables : [];
+
+  if (engine === EngineType.MONGODB) {
+    if (!connectionUri) {
+      throw new Error(`Connection string/URI (connectionString) is required for database "${alias}" when using MONGODB engine.`);
+    }
+  } else {
+    const missing = [];
+    if (!host) missing.push("hostname (host)");
+    if (!dbUser) missing.push("username (dbUser)");
+    if (!password) missing.push("password");
+    if (!dbName) missing.push("database name (dbName)");
+
+    if (missing.length > 0) {
+      throw new Error(`Missing required fields [${missing.join(", ")}] for database "${alias}" when using ${engine} engine.`);
+    }
+  }
+
+  return {
+    alias,
+    engine,
+    connectionUri,
+    host,
+    port,
+    dbName,
+    dbUser,
+    password,
+    sslEnabled,
+    tables,
+  };
+}
+
 /**
  * POST /api/onboard
  * Public API for external systems to onboard users.
  * Body: { name: string, email: string }
  * Response:
- *   - New user:      { setPasswordUrl: "<FRONTEND_URL>/set-password/<guid>" }
- *   - Existing user: { loginUrl: "<FRONTEND_URL>/signin?email=<encoded>" }
+ *   - New user:      { redirectionUrl: "<FRONTEND_URL>/set-password/<guid>" }
+ *   - Existing user: { redirectionUrl: "<FRONTEND_URL>/signin?email=<encoded>" }
  */
 router.post("/", async (req, res) => {
   try {
-    const { name, email } = req.body;
+    const { name, email, database } = req.body;
 
     if (!name || !email) {
       return res.status(400).json({ error: "name and email are required." });
     }
 
     const normalizedEmail = email.toLowerCase().trim();
+
+    let normalizedDatabases: any[] = [];
+    if (database !== undefined && database !== null) {
+      if (!Array.isArray(database)) {
+        return res.status(400).json({ error: "database field must be an array." });
+      }
+      if (database.length > 0) {
+        try {
+          normalizedDatabases = database.map(normalizeDatabaseConnection);
+        } catch (err: any) {
+          return res.status(400).json({ error: err.message });
+        }
+      }
+    }
 
     const db = await getControlDb();
     const usersColl = db.collection("users");
@@ -32,7 +136,7 @@ router.post("/", async (req, res) => {
       const loginUrl = `${getFrontendUrl(req)}/signin?email=${encodeURIComponent(normalizedEmail)}`;
       return res.json({
         existingUser: true,
-        loginUrl,
+        redirectionUrl: loginUrl,
         message: "User already exists. Use the login URL to authenticate.",
       });
     }
@@ -45,13 +149,14 @@ router.post("/", async (req, res) => {
     if (existingProspect) {
       prospectId = existingProspect.id;
       // Update the name in case it changed
-      prospectsColl.updateOne({ id: prospectId }, { $set: { name } });
+      prospectsColl.updateOne({ id: prospectId }, { $set: { name, database: normalizedDatabases } });
     } else {
       prospectId = newId();
       prospectsColl.insertOne({
         id: prospectId,
         name,
         email: normalizedEmail,
+        database: normalizedDatabases,
         created_at: new Date().toISOString(),
       });
     }
@@ -59,7 +164,7 @@ router.post("/", async (req, res) => {
     const setPasswordUrl = `${getFrontendUrl(req)}/set-password/${prospectId}`;
     return res.json({
       existingUser: false,
-      setPasswordUrl,
+      redirectionUrl: setPasswordUrl,
       message: "Prospect user created. Use the set-password URL to complete registration.",
     });
   } catch (err: any) {

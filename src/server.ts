@@ -40,7 +40,15 @@ app.use(
 
       const isLocalhost = origin.startsWith("http://localhost:") || origin.startsWith("http://127.0.0.1:");
       const isVercelSubdomain = origin.endsWith(ALLOWED_DOMAIN_SUFFIX);
-      const isAllowedOrigin = allowedOrigins.includes(origin);
+      const isAllowedOrigin = allowedOrigins.some((allowed) => {
+        if (allowed === origin) return true;
+        try {
+          const allowedHost = allowed.startsWith("http://") || allowed.startsWith("https://") ? new URL(allowed).host : allowed;
+          return allowedHost.toLowerCase() === new URL(origin).host.toLowerCase();
+        } catch {
+          return false;
+        }
+      });
 
       if (isLocalhost || isVercelSubdomain || isAllowedOrigin) {
         callback(null, true);

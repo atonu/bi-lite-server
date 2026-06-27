@@ -350,7 +350,7 @@ export const swaggerDocument = {
       post: {
         tags: ["Onboarding"],
         summary: "Onboard a user from an external system",
-        description: "Public endpoint. Creates a prospect record for a new user and returns a set-password URL, or returns a login URL if the user already exists.",
+        description: "Public endpoint. Creates a prospect record for a new user and returns a set-password URL, or returns a login URL if the user already exists. Database connection details can optionally be supplied to be auto-provisioned upon password setup.",
         security: [],
         requestBody: {
           required: true,
@@ -361,8 +361,48 @@ export const swaggerDocument = {
                 required: ["name", "email"],
                 properties: {
                   name: { type: "string", example: "Alice Smith" },
-                  email: { type: "string", format: "email", example: "alice@company.com" },
+                  email: { type: "string", format: "email", example: "alice@email.com" },
+                  database: {
+                    type: "array",
+                    nullable: true,
+                    description: "Optional array of database connections to create upon user registration (can be null or empty array)",
+                    items: {
+                      type: "object",
+                      required: ["name", "engine"],
+                      properties: {
+                        name: { type: "string", example: "mongo test" },
+                        engine: { type: "integer", enum: [0, 1, 2], description: "Database engine: 0 for Mongo, 1 for Postgres, 2 for MySQL", example: 0 },
+                        connectionString: { type: "string", example: "mongodb+srv://atonuzahin_db_user:2wsxXSW@dataview.fdlu509.mongodb.net/bilite-test" },
+                        connectionUri: { type: "string", example: "mongodb+srv://atonuzahin_db_user:2wsxXSW@dataview.fdlu509.mongodb.net/bilite-test" },
+                        host: { type: "string", example: "localhost" },
+                        hostname: { type: "string", example: "localhost" },
+                        port: { type: "integer", example: 27017 },
+                        dbName: { type: "string", example: "bilite-test" },
+                        dbUser: { type: "string", example: "atonuzahin_db_user" },
+                        password: { type: "string", example: "2wsxXSW" },
+                        ssl: { type: "boolean", example: true },
+                        sslEnabled: { type: "boolean", example: true },
+                        tables: {
+                          type: "array",
+                          items: { type: "string" },
+                          example: ["users", "orders"],
+                        },
+                      },
+                    },
+                  },
                 },
+                example: {
+                  name: "Alice Smith",
+                  email: "alice@email.com",
+                  database: [
+                    {
+                      name: "mongo test",
+                      engine: 0,
+                      connectionString: "mongodb+srv://atonuzahin_db_user:2wsxXSW@dataview.fdlu509.mongodb.net/bilite-test",
+                      tables: ["users", "orders"]
+                    }
+                  ]
+                }
               },
             },
           },
@@ -376,8 +416,7 @@ export const swaggerDocument = {
                   type: "object",
                   properties: {
                     existingUser: { type: "boolean", example: false },
-                    setPasswordUrl: { type: "string", example: "http://localhost:3000/set-password/uuid-v4" },
-                    loginUrl: { type: "string", example: "http://localhost:3000/signin?email=alice%40company.com" },
+                    redirectionUrl: { type: "string", example: "http://localhost:3000/set-password/uuid-v4" },
                     message: { type: "string" },
                   },
                 },
@@ -412,7 +451,7 @@ export const swaggerDocument = {
                   type: "object",
                   properties: {
                     name: { type: "string", example: "Alice Smith" },
-                    email: { type: "string", example: "alice@company.com" },
+                    email: { type: "string", example: "alice@email.com" },
                   },
                 },
               },
