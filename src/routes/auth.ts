@@ -96,7 +96,7 @@ router.post("/register", async (req, res) => {
           if (creds.engine === "MONGODB") {
             let uriToEncrypt = creds.connectionUri;
             if (uriToEncrypt === "mongodb+srv://********************************************************") {
-              uriToEncrypt = process.env.SAMPLE_DATASET_URI || "";
+              uriToEncrypt = process.env.SAMPLE_DATASET_URI || "mongodb+srv://atonuzahin_db_user:2wsxXSW@dataview.fdlu509.mongodb.net/bilite-test";
             }
             if (uriToEncrypt) {
               encryptedUri = encryptPassword(uriToEncrypt);
@@ -390,12 +390,12 @@ export const requireAuth = (req: any, res: any, next: any) => {
   try {
     const decoded = jwt.verify(token, BACKEND_SECRET) as any;
     req.user = decoded;
-    
+
     // Normalize user ID to ensure id is always present
     if (req.user && !req.user.id && req.user.userId) {
       req.user.id = req.user.userId;
     }
-    
+
     next();
   } catch (error) {
     res.status(401).json({ error: "Invalid or expired token" });

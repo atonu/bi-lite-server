@@ -1,7 +1,7 @@
 import { Router, Response } from "express";
 import crypto from "crypto";
 import { getControlDb, newId } from "../json-db";
-import { encryptPassword } from "../crypto-helper";
+import { encryptPassword, decryptPassword } from "../crypto-helper";
 
 const router = Router();
 
@@ -85,20 +85,40 @@ router.get("/all", async (req: any, res: Response) => {
       { sort: { created_at: -1 } }
     );
 
-    const formatted = connections.map((c) => ({
-      id: c.id,
-      alias: c.alias,
-      engine: c.engine,
-      host: c.host,
-      port: c.port,
-      dbName: c.db_name,
-      dbUser: c.db_user,
-      sslEnabled: c.ssl_enabled,
-      status: c.status,
-      createdAt: c.created_at,
-      updatedAt: c.updated_at,
-      lastTestedAt: c.last_tested_at,
-    }));
+    const formatted = connections.map((c) => {
+      let connectionString = "";
+      try {
+        if (c.engine === "MONGODB" && c.encrypted_uri) {
+          connectionString = decryptPassword(c.encrypted_uri);
+        } else if (c.engine !== "MONGODB") {
+          const decryptedPassword = c.encrypted_password ? decryptPassword(c.encrypted_password) : "";
+          const protocol = c.engine === "MYSQL" ? "mysql" : "postgresql";
+          const user = c.db_user ? `${c.db_user}${decryptedPassword ? `:${decryptedPassword}` : ""}@` : "";
+          const host = c.host || "localhost";
+          const port = c.port ? `:${c.port}` : "";
+          const db = c.db_name ? `/${c.db_name}` : "";
+          connectionString = `${protocol}://${user}${host}${port}${db}`;
+        }
+      } catch (err) {
+        console.error("Failed to decrypt connection parameters:", err);
+      }
+
+      return {
+        id: c.id,
+        alias: c.alias,
+        engine: c.engine,
+        host: c.host,
+        port: c.port,
+        dbName: c.db_name,
+        dbUser: c.db_user,
+        sslEnabled: c.ssl_enabled,
+        status: c.status,
+        createdAt: c.created_at,
+        updatedAt: c.updated_at,
+        lastTestedAt: c.last_tested_at,
+        connectionString,
+      };
+    });
 
     return res.json(formatted);
   } catch (err: any) {
@@ -130,7 +150,7 @@ router.post("/", async (req: any, res: Response) => {
     if (creds.engine === "MONGODB") {
       let uriToEncrypt = creds.connectionUri;
       if (uriToEncrypt === "mongodb+srv://********************************************************") {
-        uriToEncrypt = process.env.SAMPLE_DATASET_URI || "";
+        uriToEncrypt = process.env.SAMPLE_DATASET_URI || "mongodb+srv://atonuzahin_db_user:2wsxXSW@dataview.fdlu509.mongodb.net/bilite-test";
       }
       if (!uriToEncrypt) {
         return res.status(400).json({ success: false, error: "MongoDB connection URI is required." });

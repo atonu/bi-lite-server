@@ -68,7 +68,7 @@ if (process.env.VERCEL === "1") {
     const originalEnd = res.end;
     let isEnding = false;
 
-    res.end = function(...args: any[]) {
+    res.end = function (...args: any[]) {
       if (isEnding) {
         return originalEnd.apply(res, args as any);
       }
@@ -145,7 +145,7 @@ const authMiddleware = (req: any, res: any, next: any) => {
   try {
     const decoded = jwt.verify(token, BACKEND_SECRET) as any;
     req.user = decoded;
-    
+
     // Normalize user ID to ensure id is always present
     if (req.user && !req.user.id && req.user.userId) {
       req.user.id = req.user.userId;
@@ -191,7 +191,7 @@ app.post("/api/connection/test", authMiddleware, async (req, res) => {
     if (creds.engine === "MONGODB") {
       let testUri = creds.connectionUri;
       if (testUri === "mongodb+srv://********************************************************") {
-        testUri = process.env.SAMPLE_DATASET_URI || "";
+        testUri = process.env.SAMPLE_DATASET_URI || "mongodb+srv://atonuzahin_db_user:2wsxXSW@dataview.fdlu509.mongodb.net/bilite-test";
       }
       if (!testUri) {
         return res.status(400).json({ success: false, error: "Connection URI required." });
@@ -253,7 +253,7 @@ app.post("/api/connection/introspect", authMiddleware, async (req, res) => {
   try {
     const creds = req.body;
     if (creds.connectionUri === "mongodb+srv://********************************************************") {
-      creds.connectionUri = process.env.SAMPLE_DATASET_URI || "";
+      creds.connectionUri = process.env.SAMPLE_DATASET_URI || "mongodb+srv://atonuzahin_db_user:2wsxXSW@dataview.fdlu509.mongodb.net/bilite-test";
     }
     const result = await introspectTransientSchema(creds);
     return res.json(result);

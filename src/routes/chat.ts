@@ -1,5 +1,5 @@
 import { Router, Response } from "express";
-import { generateText } from "ai";
+import { generateText, Output } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import * as z from "zod";
 import { getControlDb, newId } from "../json-db";
@@ -633,6 +633,7 @@ router.post("/ask", async (req: any, res: Response) => {
           system: systemPrompt,
           prompt: question,
           temperature: 0.1,
+          output: Output.json(),
         });
       } catch (aiErr: any) {
         const errMsg = extractErrorMessage(aiErr);
@@ -711,6 +712,7 @@ router.post("/ask", async (req: any, res: Response) => {
         system: sqlSystemPrompt,
         prompt: question,
         temperature: 0.1,
+        output: Output.json(),
       });
     } catch (aiErr: any) {
       const errMsg = extractErrorMessage(aiErr);
@@ -851,6 +853,7 @@ RULES:
         system: systemPrompt,
         prompt: question,
         temperature: 0.1,
+        output: Output.json(),
       });
     } catch (aiErr: any) {
       const errMsg = extractErrorMessage(aiErr);
@@ -946,6 +949,7 @@ RULES:
         system: systemPrompt,
         prompt: question,
         temperature: 0.1,
+        output: Output.json(),
       });
     } catch (aiErr: any) {
       const errMsg = extractErrorMessage(aiErr);
